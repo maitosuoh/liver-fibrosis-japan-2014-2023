@@ -1,0 +1,231 @@
+---
+title: "NDB"
+output: html_document
+date: "2026-02-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+# create directories
+
+dir.create("../xlsx", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+
+dir.create("../xlsx/img", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+
+dir.create("../xlsx/img/dem", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+dir.create("../xlsx/img/prf", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+dir.create("../xlsx/img/mon", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+dir.create("../xlsx/img/sec", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+
+```{r}
+# dem
+
+# h26
+# https://www.mhlw.go.jp/file/06-Seisakujouhou-12400000-Hokenkyoku/0000139443.xlsx
+
+# h27
+# https://www.mhlw.go.jp/file/06-Seisakujouhou-12400000-Hokenkyoku/0000177245.xlsx
+
+# h28
+# https://www.mhlw.go.jp/content/12400000/000347714.xlsx
+
+# h29 
+# https://www.mhlw.go.jp/content/12400000/000711838.xlsx
+
+# h30
+# https://www.mhlw.go.jp/content/12400000/000607901.xlsx
+
+# h31
+# https://www.mhlw.go.jp/content/12400000/000821453.xlsx
+
+# r2
+# https://www.mhlw.go.jp/content/12400000/001262152.xlsx
+
+# r3
+# https://www.mhlw.go.jp/content/12400000/001122100.xlsx
+
+# r4
+# https://www.mhlw.go.jp/content/12400000/001258318.xlsx
+
+# r5
+# https://www.mhlw.go.jp/content/12400000/001493127.xlsx
+
+url_dem <- c(
+  "https://www.mhlw.go.jp/file/06-Seisakujouhou-12400000-Hokenkyoku/0000139443.xlsx",
+  "https://www.mhlw.go.jp/file/06-Seisakujouhou-12400000-Hokenkyoku/0000177245.xlsx",
+  "https://www.mhlw.go.jp/content/12400000/000347714.xlsx",
+  "https://www.mhlw.go.jp/content/12400000/000711838.xlsx",
+  "https://www.mhlw.go.jp/content/12400000/000607901.xlsx",
+  "https://www.mhlw.go.jp/content/12400000/000821453.xlsx",
+  "https://www.mhlw.go.jp/content/12400000/001262152.xlsx",
+  "https://www.mhlw.go.jp/content/12400000/001122100.xlsx",
+  "https://www.mhlw.go.jp/content/12400000/001258318.xlsx",
+  "https://www.mhlw.go.jp/content/12400000/001493127.xlsx")
+```
+
+```{r}
+file_dem <- url_dem %>% str_extract("00[:digit:]+\\.xlsx")
+
+path_dem <- paste0("../xlsx/img/dem/", file_dem)
+```
+
+```{r}
+for (i in 1:length(url_dem)){
+  download.file(url_dem[i], path_dem[i], mode = "wb")
+  print(paste(file_dem[i], "downloaded"))
+}
+```
+
+
+```{r}
+# prf
+
+# h26
+# https://www.mhlw.go.jp/file/06-Seisakujouhou-12400000-Hokenkyoku/0000139444.xlsx
+
+# h27
+# https://www.mhlw.go.jp/file/06-Seisakujouhou-12400000-Hokenkyoku/0000177246.xlsx
+
+# h28
+# https://www.mhlw.go.jp/content/12400000/000347715.xlsx
+
+# h29
+# https://www.mhlw.go.jp/content/12400000/000711840.xlsx
+
+# h30
+# https://www.mhlw.go.jp/content/12400000/000539674.xlsx
+
+# h31
+# https://www.mhlw.go.jp/content/12400000/000821454.xlsx
+
+# r2
+# https://www.mhlw.go.jp/content/12400000/001262153.xlsx
+
+# r3
+# https://www.mhlw.go.jp/content/12400000/001122101.xlsx
+
+# r4
+# https://www.mhlw.go.jp/content/12400000/001258319.xlsx
+
+# r5
+# https://www.mhlw.go.jp/content/12400000/001493128.xlsx
+
+url_prf <- c("https://www.mhlw.go.jp/file/06-Seisakujouhou-12400000-Hokenkyoku/0000139444.xlsx",
+             "https://www.mhlw.go.jp/file/06-Seisakujouhou-12400000-Hokenkyoku/0000177246.xlsx",
+             "https://www.mhlw.go.jp/content/12400000/000347715.xlsx",
+             "https://www.mhlw.go.jp/content/12400000/000711840.xlsx",
+             "https://www.mhlw.go.jp/content/12400000/000539674.xlsx",
+             "https://www.mhlw.go.jp/content/12400000/000821454.xlsx",
+             "https://www.mhlw.go.jp/content/12400000/001262153.xlsx",
+             "https://www.mhlw.go.jp/content/12400000/001122101.xlsx",
+             "https://www.mhlw.go.jp/content/12400000/001258319.xlsx",
+             "https://www.mhlw.go.jp/content/12400000/001493128.xlsx")
+```
+
+```{r}
+file_prf <- url_prf %>% str_extract("00[:digit:]+\\.xlsx")
+
+path_prf <- paste0("../xlsx/img/prf/", file_prf)
+```
+
+```{r}
+for (i in 1:length(url_prf)){
+  download.file(url_prf[i], path_prf[i], mode = "wb")
+  print(paste(file_prf[i], "downloaded"))
+}
+```
+
+
+#end
+
+```{r}
+# monthly
+
+# h31
+# https://www.mhlw.go.jp/content/12400000/000821452.xlsx
+
+# r2
+# https://www.mhlw.go.jp/content/12400000/001262154.xlsx
+
+# r3
+# https://www.mhlw.go.jp/content/12400000/001122102.xlsx
+
+# r4
+# https://www.mhlw.go.jp/content/12400000/001258320.xlsx
+
+# r5
+# https://www.mhlw.go.jp/content/12400000/001493129.xlsx
+
+
+url_mon <- c(
+  "https://www.mhlw.go.jp/content/12400000/000821452.xlsx",
+  "https://www.mhlw.go.jp/content/12400000/001262154.xlsx",
+  "https://www.mhlw.go.jp/content/12400000/001122102.xlsx",
+  "https://www.mhlw.go.jp/content/12400000/001258320.xlsx",
+  "https://www.mhlw.go.jp/content/12400000/001493129.xlsx"
+)
+
+```
+
+```{r}
+file_mon <- url_mon %>% str_extract("00[:digit:]+\\.xlsx")
+
+path_mon <- paste0("../xlsx/img/mon/", file_mon)
+```
+
+
+```{r}
+for (i in 1:length(url_mon)){
+  download.file(url_mon[i], path_mon[i], mode = "wb")
+  print(paste(file_mon[i], "downloaded"))
+}
+```
+
+```{r}
+# secondary
+
+# h31
+# https://www.mhlw.go.jp/content/12400000/000821455.xlsx
+
+# r2
+# https://www.mhlw.go.jp/content/12400000/001262155.xlsx
+
+# r3
+# https://www.mhlw.go.jp/content/12400000/001122103.xlsx
+
+# r4
+# https://www.mhlw.go.jp/content/12400000/001258321.xlsx
+
+# r5
+# https://www.mhlw.go.jp/content/12400000/001493130.xlsx
+
+url_sec <- c(
+  "https://www.mhlw.go.jp/content/12400000/000821455.xlsx",
+  "https://www.mhlw.go.jp/content/12400000/001262155.xlsx",
+  "https://www.mhlw.go.jp/content/12400000/001122103.xlsx",
+  "https://www.mhlw.go.jp/content/12400000/001258321.xlsx",
+  "https://www.mhlw.go.jp/content/12400000/001493130.xlsx"
+)
+```
+
+```{r}
+file_sec <- url_sec %>% str_extract("00[:digit:]+\\.xlsx")
+
+path_sec <- paste0("../xlsx/img/sec/", file_sec)
+```
+
+```{r}
+for (i in 1:length(url_sec)){
+  download.file(url_sec[i], path_sec[i], mode = "wb")
+  print(paste(file_sec[i], "downloaded"))
+}
+```
