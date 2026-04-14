@@ -1,0 +1,2068 @@
+---
+title: "Liver fibrosis"
+output: html_document
+date: "2026-02-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+
+library(rnaturalearth)
+
+library(viridis)
+
+library(fpp3)
+library(ggh4x)
+
+library(ggtext)
+library(scales)
+
+library(patchwork)
+library(sf)
+
+library(FactoMineR)
+library(ggrepel)
+
+library(factoextra)
+library(cluster)
+
+library(umap)
+
+library(rstatix)
+library(broom)
+
+library(cowplot)
+
+library(pheatmap)
+library(ComplexHeatmap)
+
+library(mapdata)
+library(ggplotify)
+
+library(umap)
+library(moments)
+```
+
+```{r}
+df_test_dem_reg <-  readRDS("../rds/test/dem/df_test_dem_reg")
+
+df_test_prf_reg <-  readRDS("../rds/test/prf/df_test_prf_reg")
+```
+
+```{r}
+df_img_dem_add <- readRDS("../rds/img/dem/df_img_dem_add")
+
+df_img_prf_add <- readRDS("../rds/img/prf/df_img_prf_add")
+```
+
+
+```{r}
+df_pop_prf <- readRDS("../rds/pop/prf/df_pop_prf")
+```
+
+```{r}
+df_test_prf_reg %>%
+  filter(str_detect(PRO_name, "組織インヒビター") &
+           str_detect(CLASS_name, "血液"))　%>%
+  count(PRO_name, PRO_code)
+```
+
+
+```{r}
+df_test_prf <- df_test_prf_reg %>%
+  bind_rows(df_img_prf_add) %>%
+  rename(YEAR = "YEAR_str") %>%
+  mutate(TOTAL = as.numeric(TOTAL))
+```
+
+
+```{r}
+# 160029310	 P-3-P 	
+# 160125050 ４型コラーゲン・７Ｓ 
+# 160145310	４型コラーゲン
+# 160151150 ヒアルロン酸
+# 160204950 M2BPGi
+# 160215150 オートタキシン 
+# 160189750 TE
+# 160207310 USE
+# 160231410 CAP
+# 170040170 MRE
+
+df_fib_marker <- tibble(PRO_code = c("160029310",
+                                     "160125050",
+                                     "160145310",
+                                     "160151150",
+                                     "160204950",
+                                     "160215150",
+                                     "160189750",
+                                     "160207310",
+                                     "160231410",
+                                     "170040170"),
+                        FIB = c("P-3-P",
+                                "COL4-7S",
+                                "COL4",
+                                "HA",
+                                "M2BPGi",
+                                "Autotaxin",
+                                "TE",
+                                "USE",
+                                "CAP",
+                                "MRE")) 
+```
+
+
+```{r}
+levels_fib <- df_fib_marker$FIB
+```
+
+
+```{r}
+df_fib_marker <- df_fib_marker %>%
+  mutate(FIB = factor(FIB, levels = levels_fib))
+```
+
+
+```{r}
+df_fib_prf <- df_test_prf %>%
+  filter(PRO_code %in% df_fib_marker$PRO_code) %>%
+  left_join(df_fib_marker,
+            by = join_by(PRO_code))
+```
+
+# convert to long
+
+```{r}
+df_fib_prf_long <- df_fib_prf  %>%
+  pivot_longer(col = c(ends_with("都"),
+                       ends_with("道"),
+                       ends_with("府"),
+                       ends_with("県")),
+               names_to = "PRF_jp",
+               values_to = "VALUE")
+```
+
+# format prf
+
+```{r}
+df_prf <- rnaturalearth::ne_states("japan") %>% 
+  as_tibble() %>%
+  select(iso_3166_2, name_ja, name_en) %>%
+  rename(PRF_jp = "name_ja",
+         PRF= "name_en") %>%
+  arrange(iso_3166_2)
+```
+
+```{r}
+df_prf <- df_prf %>%
+  mutate(PRF = str_remove(PRF, "Prefecture")) %>%
+  mutate(PRF = str_trim(PRF, side = "both")) %>%
+  mutate(PRF = str_replace_all(PRF, "Ō", "O")) %>%
+  mutate(PRF = str_replace_all(PRF, "ō", "o"))
+```
+
+```{r}
+df_fib_prf_long <- df_fib_prf_long %>%
+  left_join(df_prf,
+            by = join_by(PRF_jp))
+```
+
+```{r}
+prf_levels <- df_fib_prf_long %>%
+  distinct(iso_3166_2, PRF) %>%
+  arrange(iso_3166_2) %>%
+  pull(PRF)
+
+prf_levels 
+```
+
+
+
+
+```{r}
+# define region
+
+hokkaido <- c("JP-01")
+
+tohoku <- c(paste0("JP-0", as.character(2:7)))
+
+kanto <- c(paste0("JP-0", as.character(8:9)), 
+           paste0("JP-", as.character(10:14)))
+
+chubu <- c(paste0("JP-", as.character(15:24)))
+
+kinki <- c(paste0("JP-", as.character(25:30)))
+
+chugoku <- c(paste0("JP-", as.character(31:35)))
+
+shikoku <- c(paste0("JP-", as.character(36:39)))
+
+kyusyu_okinawa <- c(paste0("JP-", as.character(40:47)))
+
+```
+
+
+```{r}
+reg_levels <- c("Hokkaido",
+                "Tohoku",
+                "Kanto",
+                "Chubu",
+                "Kansai",
+                "Chugoku",
+                "Shikoku",
+                "Kyusyu\nOkinawa")
+```
+
+```{r}
+df_fib_prf_long <- df_fib_prf_long %>%
+  mutate(REG = case_when(iso_3166_2 %in% hokkaido ~ "Hokkaido",
+                         iso_3166_2 %in% tohoku ~ "Tohoku",
+                         iso_3166_2 %in% kanto ~ "Kanto",
+                         iso_3166_2 %in% chubu ~ "Chubu",
+                         iso_3166_2 %in% kinki ~ "Kansai",
+                         iso_3166_2 %in% chugoku ~ "Chugoku",
+                         iso_3166_2 %in% shikoku ~ "Shikoku",
+                         iso_3166_2 %in% kyusyu_okinawa ~ "Kyusyu\nOkinawa")) %>%
+  mutate(REG = factor(REG, levels = reg_levels)) %>%
+  mutate(PRF = factor(PRF, levels = prf_levels))
+```
+
+
+
+## check missing
+
+
+```{r}
+df_fib_prf_long %>%
+  filter(VALUE == "-") %>%
+  filter(YEAR == "2020") %>%
+  count(FIB, YEAR)
+```
+
+# format
+
+```{r}
+df_fib_prf_long <- df_fib_prf_long %>%
+  mutate(VALUE = str_replace(VALUE, "-", "0")) %>%
+  mutate(VALUE = as.numeric(VALUE))
+```
+
+#
+
+```{r}
+# 2023
+
+df_fib_prf_all <- df_fib_prf_long %>%
+  group_by(FIB, YEAR, REG, PRF, iso_3166_2) %>%
+  summarise(SUM = sum(VALUE))
+  
+```
+
+```{r}
+df_fib_prf_all %>%
+  filter(SUM == 0) %>%
+  ungroup() %>%
+  count(FIB, YEAR) %>%
+  ungroup()
+``` 
+
+
+```{r}
+df_fib_prf_all %>%
+  mutate(YEAR = as.numeric(YEAR)) %>%
+  ggplot(aes(YEAR, SUM, group = FIB, colour = FIB)) +
+  geom_line(linewidth = 0.3) +
+    scale_colour_manual(values= c("#e377c2",
+                                  "#bcbd22",
+                                  "#8c564b",
+                                  "gray60",
+                                  "#ff7f0e",
+                                  "#1f77b4",
+                                "#d62728",
+                                "#17becf",
+                                "#9467bd",
+                                "black"))+
+    facet_wrap2(vars(PRF), scales = "free_y",
+                nrow = 8, ncol = 6)+
+  theme_classic()+
+  theme(strip.background = element_blank(),
+        strip.text = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title = element_text(size = 8, colour = "black"),
+        axis.text.x = element_text(size = 8, colour = "black",
+                                 angle = 90, hjust = 1, vjust = 0.5),
+        axis.title.y = element_text(size = 8, colour = "black"),
+        legend.position = "none")
+```
+
+
+```{r}
+colnames( df_fib_prf_all)
+```
+
+# add pop
+
+```{r}
+levels_fib_n <- df_fib_prf_all %>% ungroup() %>% filter(FIB != "CAP") %>% arrange(FIB) %>% distinct(FIB) %>%
+  pull(FIB) %>% str_replace("TE", "TE_CAP")
+
+levels_fib_n
+```
+
+
+
+# analysis
+
+
+```{r}
+df_fib_prf_2023 <- df_fib_prf_all %>%
+  ungroup() %>%
+  filter(YEAR == "2023") %>%
+  mutate(FIB = case_when(FIB %in% c("TE", "CAP") ~ "TE_CAP",
+                         .default = FIB)) %>%
+  filter(FIB != "CAP") %>%
+  group_by(FIB, YEAR, PRF, iso_3166_2) %>%
+  summarise(SUM = sum(SUM)) %>%
+  mutate(FIB = factor(FIB, levels  = levels_fib_n)) %>%
+  ungroup()
+
+df_fib_prf_2023
+```
+
+
+```{r}
+df_fib_prf_2023 <- df_fib_prf_2023%>%
+  mutate(ID = paste0(iso_3166_2, "_", YEAR)) %>%
+  left_join(df_pop_prf %>%
+              mutate(ID = paste0(iso_3166_2, "_", YEAR)) %>%
+              rename(POP = "ALL_total") %>%
+              select(ID, POP),
+            by = join_by(ID))
+```
+
+
+```{r}
+df_fib_prf_2023 <- df_fib_prf_2023 %>%
+  mutate(ADJ = SUM/POP) %>%
+  mutate(ADJ_log = log1p(ADJ)) %>%
+  ungroup()
+```
+
+
+```{r}
+df_fib_prf_2023 %>% group_by(FIB) %>%
+  summarise(ADJ_ori = skewness(ADJ),
+            ADJ_log = skewness(ADJ_log))
+```
+
+
+```{r}
+df_fib_prf_2023 %>% 
+  ggplot(aes(ADJ)) +
+  geom_histogram(bins = 20)+
+  facet_wrap2(vars(FIB), scales = "free")
+```
+
+```{r}
+df_fib_prf_2023 %>% 
+  ggplot(aes(ADJ_log)) +
+  geom_histogram(bins = 20)+
+  facet_wrap2(vars(FIB), scales = "free")
+```
+
+
+```{r}
+df_fib_prf_2023_wide <- df_fib_prf_2023 %>%
+  select(FIB, PRF, ADJ_log) %>%
+  pivot_wider(names_from = FIB,
+              values_from = ADJ_log)
+
+df_fib_prf_2023_wide
+```
+
+
+# PCA 
+
+```{r}
+#fib_clu <- c("COL4-7S", "M2BPGi", "USE")
+```
+
+
+```{r}
+# scale to create the 
+
+mat_fib_prf <- df_fib_prf_2023_wide %>%
+  column_to_rownames(var = "PRF") %>%
+#  select(any_of(fib_clu)) %>%
+  scale()
+
+#mat_fib_prf 
+```
+
+
+```{r}
+pca_fib <- prcomp(mat_fib_prf)
+```
+
+```{r}
+get_eigenvalue(pca_fib)
+```
+```{r}
+pca_fib$sdev^2
+```
+
+
+```{r}
+summary(pca_fib)
+```
+
+
+```{r}
+pca_fib$rotation
+```
+
+```{r}
+summary(pca_fib)$importance
+```
+
+
+```{r}
+# proportion and cumulative contribution of PCs
+
+df_pca_prop <- summary(pca_fib)$importance[2, ] %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "PC") %>%
+  rename(PRO = ".") %>%
+  mutate(PC = str_remove(PC, "PC")) %>%
+  mutate(PRO = PRO * 100) %>%
+  mutate(CS = cumsum(PRO)) %>%
+  mutate(PCA = "pca") 
+
+df_pca_prop 
+```
+
+```{r}
+lab_pc1_pro <- df_pca_prop %>% filter(PC == "1") %>% pull(PRO) %>%
+  signif(digit = 3)
+
+lab_pc1_pro
+
+lab_pc2_pro <- df_pca_prop %>% filter(PC == "2") %>% pull(PRO) %>%
+  signif(digit = 3)
+
+lab_pc2_pro
+```
+
+```{r}
+df_pca_x <- pca_fib$x[, 1:2] %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "PRF")
+
+df_pca_x 
+```
+
+```{r}
+s2_a1  <- df_pca_x %>%
+  ggplot(aes(PC1, PC2))+
+    geom_point(
+             shape = 21, colour = "black", alpha = 1,
+             fill = "gray",
+             size = 2)+
+  geom_text_repel(aes(label = PRF),
+                  size = 2.6, colour = "black",
+                  max.overlaps = 5,
+                  segment.size = 0.2,
+                  segment.alpha	= 0.7)+
+  scale_x_continuous(expand = c(0, 0),
+                     limits = c(-2.5, 5))+
+  scale_y_continuous(expand = c(0, 0),
+                     limits = c(-4, 4))+
+  coord_fixed(ratio = 1)+
+  labs(tag = "A",
+       x = paste0("**PC1** (", lab_pc1_pro, "%)"),
+       y = paste0("**PC2** (", lab_pc2_pro, "%)" ))+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        axis.line = element_blank(), #line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_markdown(size = 8, colour = "black"),
+        axis.title.y = element_markdown(size = 8, colour = "black"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "none",
+        panel.border = element_rect(colour = "black", fill=NA, linewidth=0.3),
+        plot.margin = margin(0, 2, 2, 0, unit = "mm"))
+
+s2_a1
+
+#ggsave("../figure/s2_a.jpg", s2_a)
+```
+
+
+```{r}
+s2_b1 <- df_pca_prop  %>%
+  ggplot()+
+  geom_col(aes(PC, PRO),
+           width = 0.7,
+           fill = "#7f7f7f")+
+  scale_y_continuous(expand = c(0, 0),
+                     limits = c(0, 25),
+                     breaks = seq(0, 25, 5))+
+  geom_text(data = df_pca_prop,
+            aes(x = PC, y = PRO + 25/50, label = round(PRO, digits = 1)),
+            size = 2.8, colour = "black",
+            vjust = 0)+
+  coord_cartesian(clip = "off")+
+  labs(tag = "B",
+       x = "PC",
+       y = "Contribution (%)")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "none",
+        plot.margin = margin(0, 2.5, 0, 0, unit = "mm"))
+
+s2_b1 
+```
+
+```{r}
+s2_b2 <- df_pca_prop  %>%
+  ggplot()+
+  geom_line(aes(PC, CS,  group = PCA),
+            colour = "#7f7f7f", 
+            linewidth = 0.3)+
+  geom_point(aes(PC, CS),
+             colour = "#7f7f7f", size = 1)+
+  scale_y_continuous(expand = c(0, 0),
+                     limits = c(0, 100),
+                     breaks = seq(0, 100, 25))+
+    geom_vline(xintercept = 4, linewidth = 0.3,
+             linetype = 3, colour = "black")+
+  geom_text(data = df_pca_prop %>% 
+              mutate(y = case_when(PC %in% c("1", "8", "9") ~ CS - 100/20,
+                                   .default = CS + 100/20)),
+            aes(x = PC, y = y,
+                label = formatC(CS, digits = 3, format = "fg" , flag = "#") %>%
+                  str_remove("\\.$")),
+            size = 2.8, colour = "black",
+            vjust = 0.5)+
+  coord_cartesian(clip = "off")+
+  labs(#tag = "B",
+       x = "PC",
+       y = "Cumulative contribution (%)")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "none",
+        plot.margin = margin(0, 2.5, 0, 0, unit = "mm"))
+
+s2_b2
+```
+
+```{r}
+df_pca_eigen <- pca_fib$sdev^2 %>%
+  as.data.frame() %>%
+  rename(EIGEN = ".") %>%
+  mutate(PC = row_number()) %>%
+  mutate(PC = as.character(PC))
+
+df_pca_eigen
+```
+
+```{r}
+s2_b3 <- df_pca_eigen %>%
+  mutate(label = formatC(EIGEN, digits = 2, format = "f", flag = "#")) %>%
+  ggplot(aes(PC, EIGEN))+
+  geom_col(width = 0.7,
+           fill = "#7f7f7f")+
+  scale_y_continuous(limits = c(0, 2),
+                     breaks = seq(0, 2, 0.5),
+                     expand = c(0, 0)) +
+  geom_hline(yintercept = 1.0, linewidth = 0.3, linetype = 3, colour = "black")+
+  geom_text(aes(label = label, y = EIGEN + 2/50),
+            size = 2.8, colour = "black", vjust = 0)+
+  labs(#tag = "C",
+       x = "PC",
+       y = "Eigenvalue")+
+  coord_cartesian(clip = "off")+
+  theme_classic()+
+  theme(#plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "none",
+        plot.margin = margin(0, 2.5, 0, 0, unit = "mm"))
+
+s2_b3
+```
+
+
+```{r}
+levels_fib_p <- levels_fib %>% str_replace("TE", "TE + CAP")
+
+levels_fib_p <- levels_fib_p[levels_fib_p != "CAP"]
+
+levels_fib_p
+```
+
+
+```{r}
+df_pca_bip <- pca_fib$rotation[, 1:2] %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "FIB") %>%
+  mutate(FIB_label = str_replace(FIB, "_", " + ")) %>%
+  mutate(FIB_label =  factor(FIB_label, levels = levels_fib_p)) 
+
+df_pca_bip
+```
+
+
+```{r}
+biplot(pca_fib)
+```
+
+
+
+
+```{r}
+# PCA biplot with ggplot
+
+
+s2_a2 <- df_pca_bip %>%
+  
+  mutate(hjust = case_when(FIB_label %in% c("USE", "M2BPGi") ~ 1,
+                           FIB_label %in% c("P-3-P") ~ 0.5,
+                           .default = 0)) %>%
+  mutate(x = case_when(FIB_label %in% c("USE", "M2BPGi") ~ PC1 - 2/50,
+                           FIB_label %in% c("P-3-P") ~ PC1,
+                           .default = PC1 + 2/50)) %>%
+  
+  mutate(vjust = case_when(FIB_label %in% c("M2BPGi","COL4-7S", "TE + CAP") ~ 1,
+                           FIB_label %in% c("P-3-P", "MRE") ~ 0,
+                           .default = 0.5)) %>%
+  mutate(y = case_when(FIB_label %in%c("M2BPGi","COL4-7S", "TE + CAP")  ~ PC2 - 2/50,
+                           FIB_label %in% c("P-3-P") ~ PC2 + 2/50,
+                       FIB_label %in% c("MRE") ~ PC2 + 2/50*2,
+                           .default = PC2)) %>%
+  
+  ggplot(aes(PC1,  PC2))+
+  geom_segment(aes(x = 0, xend = PC1, y = 0, yend = PC2, colour = FIB_label),
+                arrow = arrow(length = unit(0.1, "inches")))+
+  
+  
+  scale_colour_manual(values= c("#e377c2",
+                                  "#bcbd22",
+                                  "#8c564b",
+                                  "#7f7f7f",
+                                  "#ff7f0e",
+                                  "#1f77b4",
+                                "#d62728",
+                                "#17becf",
+                                "#9467bd"))+
+  geom_text(aes(label= FIB_label,
+                x = x ,hjust = hjust,
+                y = y, vjust = vjust),
+            size = 2.8, colour = "black")+
+  ggforce::geom_circle(aes(x0 = 0, y0 = 0, r = 1),
+                       colour = "gray", linewidth = 0.3)+
+  guides(colour = guide_legend(override.aes = list(linewidth = 0.5 )))  +
+  scale_x_continuous(expand = c(0, 0),
+                     limits = c(-1, 1),
+                     breaks = seq(-1, 1, 0.5))+
+  scale_y_continuous(expand = c(0, 0),
+                     limits = c(-1, 1),
+                     breaks = seq(-1, 1, 0.5))+
+  labs(#tag = "B",
+       x = paste0("**PC1** (", lab_pc1_pro, "%)"),
+       y = paste0("**PC2** (", lab_pc2_pro, "%)" ))+
+  coord_fixed(ratio = 1)+
+  theme_classic()+
+  theme(#plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        axis.title.x = element_markdown(size = 8, colour = "black"),
+        axis.title.y = element_markdown(size = 8, colour = "black"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_blank(), #line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "none",
+        panel.border = element_rect(colour = "black", fill=NA, linewidth=0.3),
+        plot.margin = margin(0,1, 1, 0, unit = "mm"))
+
+s2_a2
+
+```
+
+```{r}
+s2_a <- s2_a1 +  s2_a2
+
+s2_a
+```
+
+
+```{r}
+s2_b <- s2_b1 + s2_b2 + s2_b3 
+```
+
+```{r}
+s2 <- s2_a/s2_b +
+  plot_layout(heights = c(3, 2))
+
+ggsave("../figure/FigS5.svg", s2, width = 180, height = 180, units = "mm")
+```
+
+```{r}
+levels_fib_m <- levels_fib_p  %>% str_replace("TE \\+ CAP", "TE_CAP") 
+
+levels_fib_m
+```
+
+
+```{r}
+levels_fib_p
+```
+
+```{r}
+colnames(df_fib_prf_2023_wide)[-1]
+```
+
+```{r}
+df_fib_prf_2023_ws <- df_fib_prf_2023_wide %>%
+  mutate(across(!PRF, ~ scale(.x))) %>%
+  select(any_of(c("PRF",levels_fib_m))) 
+```
+
+
+```{r}
+df_fib_prf_2023_ws 
+```
+
+```{r}
+# https://stackoverflow.com/questions/3735286/create-a-matrix-of-scatterplots-pairs-equivalent-in-ggplot2
+
+
+df_fib_pair_x <- df_fib_prf_2023_ws %>%
+  pivot_longer(cols = !PRF,
+               names_to = "FIB_x",
+               values_to = "x")
+
+df_fib_pair_y <- df_fib_prf_2023_ws %>%
+  pivot_longer(cols = !PRF,
+                       names_to = "FIB_y",
+                       values_to = "y") 
+
+```
+
+```{r}
+df_fib_pair_xy <- df_fib_pair_x %>%
+  full_join(df_fib_pair_y, 
+          by = c("PRF"),
+          relationship = "many-to-many") %>%
+  mutate(across(starts_with("FIB"), ~ str_replace(.x, "_", " \\+ "))) %>%
+  mutate(across(starts_with("FIB"), ~ factor(.x, levels = levels_fib_p)))
+```
+
+```{r}
+df_fib_pair_xy
+```
+
+```{r}
+# rows to remove
+
+# for each y[i], remove x[i:9]
+
+x_res <- c()
+
+y_res <- c()
+
+n <- length(levels_fib_p)
+
+for (i in 1:(n-1)){
+  y <- levels_fib_p[i]
+  
+  y_vec <- rep(y, 9-i)
+  
+  x_vec <- levels_fib_p[(i+1):9]
+
+  x_res <- c(x_res, x_vec)
+  
+  y_res <- c(y_res, y_vec)
+  
+  }
+
+```
+
+```{r}
+x_res
+y_res
+```
+```{r}
+xy_res <- paste0(x_res, "_", y_res)
+```
+
+
+```{r}
+s3 <- df_fib_pair_xy %>%
+  mutate(id = paste0(FIB_x, "_", FIB_y)) %>%
+  filter(!id  %in% xy_res) %>%
+ ggplot() + 
+  aes(x = x, y = y) +
+  geom_point(size = 1,
+             shape = 21, fill = NA, alpha = 0.5, colour = "black") +
+  facet_grid2(rows = vars(FIB_y),
+             cols = vars(FIB_x),
+             render_empty = FALSE,
+             switch = "both") +
+  scale_x_continuous(limits = c(-2.5, 5),
+                     breaks = seq(-2.5, 5, 2.5),
+                     labels = c("-2.5", "0", "2.5", "5"))+
+  scale_y_continuous(limits = c(-2.5, 5),
+                     breaks = seq(-2.5, 5, 2.5),
+                     labels = c("-2.5", "0", "2.5", "5"))+
+  labs(x = "Fibrosis marker",
+       y = "Fibrosis marker")+
+  theme_classic()+
+  theme(strip.background = element_blank(),
+        panel.border = element_rect(linewidth = 0.3, colour = "black"),
+        strip.placement = "outside",
+        strip.text.y.left = element_text(size = 8, colour = "black", face = "bold",
+                                         angle = 0, hjust = 1,
+                                         margin = margin(0, 1,0 , 0, "mm")),
+        strip.text.x.bottom = element_text(size = 8, colour = "black", face = "bold",
+                                           margin = margin(1, 0, 0, 0, "mm")),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.title = element_blank(),
+        axis.line = element_blank(),#line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = margin(0, 0, 0, 0, "mm"),
+        panel.spacing = unit(3, "mm"))
+
+s3 <- s3 + plot_layout()
+
+ggsave("../figure/FigS6.svg", s3, width = 180, height = 180, units = "mm")
+
+s3
+```
+
+
+
+```{r}
+
+df_fib_cor <- df_fib_prf_2023_ws %>%
+  column_to_rownames(var = "PRF") %>%
+  cor_test()
+
+df_fib_cor 
+```
+
+```{r}
+df_fib_cor <- df_fib_cor %>%
+    mutate(across(starts_with("var"), ~ str_replace_all(.x, "_", " \\+ "))) %>%
+  mutate(id = paste0(var1, "_", var2)) %>%
+  filter(!id  %in% xy_res) %>%
+  mutate(var1 = factor(var1, levels = levels_fib_p)) %>%
+  mutate(var2 = factor(var2, levels = rev(levels_fib_p)))
+```
+
+```{r}
+df_fib_cor 
+```
+
+
+```{r}
+df_fib_cor <- df_fib_cor %>%
+  mutate(cor_label = formatC(cor, digits = 2, format = "fg", flag = "#")) %>%
+  mutate(cor_label = str_replace_all(cor_label, "-", "−")) %>%
+  
+  mutate(p_label = case_when(p == 0 ~ NA,
+                             .default = formatC(p, digits = 2, format = "fg", flag = "#"))) %>%
+  mutate(label = case_when(!is.na(p_label) ~ paste0(cor_label, "<br>(*p* = ", p_label, ")"),
+                           .default = cor_label))
+```
+
+
+
+```{r}
+s4 <- df_fib_cor %>%
+  ggplot(aes(var1, var2, fill = cor))+
+  geom_tile(
+            linewidth = 0.3, colour = "black")+
+  scale_fill_gradient2(high= "#f46d43",
+                       mid = "#ffffbf",
+                       low = "#74add1",
+                       limits = c(-1, 1),
+                       name = "*r*")+
+  geom_richtext(aes(label = label),
+                fill = NA, label.color = NA, # remove background and outline
+                label.padding = grid::unit(rep(0, 4), "pt"), # remove padding
+            size = 2.8, colour = "black")+
+  guides(fill = guide_colourbar(ticks.colour = "black",
+                                ticks.linewidth = 0.3,
+                                frame.colour = "black",
+                                frame.linewidth = 0.3)) +
+  theme_classic()+
+  theme(axis.title = element_blank(),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_markdown(size = 8, colour = "black", face = "bold"),
+        legend.text  = element_text(size = 8, colour = "black"),
+        legend.position = "inside",
+        legend.justification.inside = c(1, 1),
+        legend.position.inside = c(1, 1),
+                  legend.key.width  = unit(1, "lines"),
+        legend.key.height = unit(1.5, "lines"),
+        plot.margin = margin(0, 0, 0, 0, "mm"))
+
+s4 <- s4 + plot_layout()
+
+s4
+
+ggsave("../figure/FigS7.svg", s4, width = 180, height = 180, units = "mm")
+
+```
+
+```{r}
+dim(pca_fib$x[, 1:4])
+```
+
+```{r}
+s5_a <- fviz_nbclust(pca_fib$x[, 1:4],
+                  cluster::clara,
+                  method = "silhouette",
+                  linecolor = "#7f7f7f")
+
+
+s5_a <- s5_a@data %>%
+  mutate(gr = "group") %>%
+  ggplot(aes(clusters, y, group = gr)) +
+  geom_point(size = 1, colour = "#7f7f7f") +
+  geom_line(linewidth = 0.3, colour = "#7f7f7f")+
+  geom_vline(xintercept = 4, colour = "black", linewidth = 0.3, linetype = 3)+
+  scale_y_continuous(limits = c(0, 0.25),
+                     breaks = seq(0, 0.25, 0.05))+
+  theme_classic()+
+  labs(tag = "A",
+       x = "Number of clusters",
+       y = "Average silhouette width")+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        plot.title = element_blank(),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = margin(0, 2.5, 0, 0, unit = "mm"))
+
+s5_a
+```
+
+
+```{r}
+s5_b <- fviz_nbclust(pca_fib$x[, 1:4],
+                  cluster::clara,
+                  method = "wss",
+                  linecolor = "#7f7f7f")
+
+s5_b <- s5_b$data %>%
+  mutate(gr = "group") %>%
+  ggplot(aes(clusters, y, group = gr))+
+  geom_point(size = 1, colour = "#7f7f7f") +
+  geom_line(linewidth = 0.3, colour = "#7f7f7f")+
+ # geom_vline(xintercept = 4, colour = "black", linewidth = 0.3, linetype = 3)+
+  scale_y_continuous(limits = c(0, 300),
+                     breaks = seq(0, 300, 100))+
+  labs(tag = "B",
+       x = "Number of clusters",
+       y = "Total within sum of squares")+
+  theme_classic() +
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        plot.title = element_blank(),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = margin(0, 2.5, 0, 0, unit = "mm"))
+
+s5_b
+```
+```{r}
+s5_c <- fviz_nbclust(pca_fib$x[, 1:4],
+                  cluster::clara,
+                  method = "gap_stat",
+                  linecolor = "#7f7f7f")
+
+s5_c@data
+```
+
+
+```{r}
+
+s5_c <- s5_c@data %>%
+  mutate(gap_l = formatC(gap, digits = 3, format = "fg", flag = "#")) %>%
+  mutate(ymin_l = formatC(gap, digits = 3, format = "fg", flag = "#")) %>%
+  mutate(ymax_l = formatC(gap, digits = 3, format = "fg", flag = "#")) %>%
+  mutate(label = paste0(gap_l, "<br>(", ymin_l, "–", ymax_l, ")")) %>%
+  mutate(y = 0.5,
+         x = clusters) %>%
+  mutate(label = if_else(clusters %in% c("1", "4"), label, NA)) %>%
+  mutate(gr = "group") %>%
+  
+  ggplot()+
+  geom_line(aes(clusters, gap, group = gr),
+            linewidth = 0.3, colour = "#7f7f7f")+
+  geom_point(aes(clusters, gap),
+             size = 1, colour = "#7f7f7f")+
+  geom_errorbar(aes(x = clusters, ymin = ymin, ymax = ymax ),
+                linewidth = 0.3, colour = "#7f7f7f", width = 0.2)+
+  
+#  geom_richtext(aes(x = clusters, y = y, label = label ),
+#                size = 2.5, colour = "black",
+#                hjust = 0.5, vjust = 0.5,
+#                fill = NA, label.color = NA,
+#                label.padding = grid::unit(rep(0, 4), "pt"))+
+  coord_cartesian(clip = "off") +
+#  geom_vline(xintercept = 4, colour = "black", linewidth = 0.3, linetype = 2)+
+  scale_y_continuous(limits = c(0, 0.5),
+                     breaks = seq(0, 0.5, 0.1))+
+  theme_classic()+
+  labs(tag = "C",
+       x = "Number of clusters",
+       y = "Gap statistics")+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        plot.title = element_blank(),
+        axis.title = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = margin(0, 2.5, 0, 0, unit = "mm"))
+
+s5_c
+```
+
+
+```{r}
+s5 <- s5_a + s5_b + s5_c +
+  plot_layout(design = "
+              AB
+              C#")
+
+#ggsave("../figure/FigS8.svg", s5, width = 180, height = 235/2, units = "mm")
+```
+
+```{r}
+hclust <- pca_fib$x[, 1:4] %>%
+  dist(method = "euclidian") %>%
+  hclust(method = "ward.D2") 
+
+ct_hclust <- hclust %>% cutree(k = 4)
+
+table(ct_hclust)
+```
+
+```{r}
+plot(hclust)
+```
+
+
+```{r}
+ct_hclust %>% as.data.frame() 
+```
+
+
+```{r}
+df_cluster <- ct_hclust %>% as.data.frame() %>%
+  rename(HC = ".") %>%
+  rownames_to_column(var = "PRF")  %>%
+  left_join(df_fib_prf_long %>% distinct(PRF, iso_3166_2, REG),
+           by = join_by(PRF)) %>%
+  mutate(HC = case_when(HC == 1 ~ "A",
+                        HC == 2 ~ "B",
+                        HC == 3 ~ "D",
+                        HC == 4 ~ "C") )%>%
+  mutate(HC = as.factor(HC)) 
+
+df_cluster
+```
+
+
+```{r}
+df_cluster %>% count(HC)
+```
+
+
+```{r}
+s6_a <- df_pca_x %>%
+  left_join(df_cluster,
+            by = join_by(PRF)) %>%
+  ggplot(aes(PC1, PC2))+
+  geom_point(aes(fill = HC, shape = HC),
+             colour = "black", alpha = 0.8,
+             size = 2)+
+  scale_fill_manual(values = c( "#8dd3c7",
+                                 "#ffffb3",
+                                "#fccde5",
+                               "#d9d9d9"),
+                    name = "Cluster")+
+  scale_shape_manual(values = c( 21:24),
+                    name = "Cluster")+
+  
+  geom_text_repel(aes(label = PRF),
+                  size = 2.6, colour = "black",
+                                    max.overlaps = Inf,
+                  segment.size = 0.2,
+                  segment.alpha	= 0.7)+
+    scale_x_continuous(expand = c(0, 0),
+                     limits = c(-2.5, 5))+
+  scale_y_continuous(expand = c(0, 0),
+                     limits = c(-4, 4))+
+  guides(fill = guide_legend(override.aes = list(size = 3,
+                                                 alpha= 1) ) )+
+  labs(tag = "A",
+       x = paste0("**PC1** (", lab_pc1_pro, "%)"),
+       y = paste0("**PC2** (", lab_pc2_pro, "%)" ))+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        axis.line = element_blank(), #line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_markdown(size = 8, colour = "black"),
+        axis.title.y = element_markdown(size = 8, colour = "black"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "bottom",
+      #  legend.justification.inside = c(1, 1),
+      #  legend.position.inside = c(1, 1),
+        legend.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, linewidth = 0.3),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"))
+
+s6_a
+```
+
+
+```{r}
+set.seed(55)
+umap_fib <- umap(mat_fib_prf)
+```
+
+```{r}
+s6_b <- umap_fib$layout %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "PRF") %>%
+  left_join(df_cluster,
+            by = join_by(PRF)) %>%
+  ggplot(aes(V1, V2))+
+  geom_point(aes(fill = HC, shape = HC),
+             colour = "black", alpha = 0.8,
+             size = 2)+
+  scale_fill_manual(values = c( "#8dd3c7",
+                                 "#ffffb3",
+                                "#fccde5",
+                               "#d9d9d9"),
+                    name = "Cluster")+
+  scale_shape_manual(values = c( 21:24),
+                    name = "Cluster")+
+  
+  scale_x_continuous(expand = c(0, 0),
+                     limits = c(-3, 3))+
+  scale_y_continuous(expand = c(0, 0),
+                     limits = c(-2.5, 2))+
+  geom_text_repel(aes(label = PRF),
+                  size = 2.6, colour = "black",
+                   max.overlaps = Inf,
+                  segment.size = 0.2,
+                  segment.alpha	= 0.7)+
+  guides(fill = guide_legend(override.aes = list(size = 3, alpha = 1) ) )+
+    labs(tag = "B",
+       x = "**UMAP1**",
+       y = "**UMAP2**")+
+  
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        axis.line = element_blank(), #line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_markdown(size = 8, colour = "black"),
+        axis.title.y = element_markdown(size = 8, colour = "black"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "bottom",
+    #    legend.justification.inside = c(0, 0),
+    #    legend.position.inside = c(0, 0),
+        legend.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA, linewidth=0.3),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"))
+
+s6_b 
+```
+
+
+```{r}
+s6 <- s6_a + plot_spacer() +s6_b +
+  plot_layout(heights = c(1, 1/100, 1),
+              guides = "collect")&
+  theme(legend.box.spacing = unit(0, "mm"),
+        legend.position = "bottom")
+
+ggsave("../figure/FigS8.svg", s6, width = 180, height = 235, units = "mm")
+```
+
+
+```{r}
+# count number of clusters
+
+df_cluster %>%
+  count(HC)
+```
+
+```{r}
+map_jp <- maps::map("japan", 
+                       plot = FALSE,
+                       fill = TRUE) %>%
+  st_as_sf() %>%
+  rename(PRF = "ID") %>%
+  mutate(PRF = str_to_title(PRF)) %>%
+  left_join(df_fib_prf_long %>% distinct(PRF, REG),
+            by = join_by(PRF)) %>%
+  left_join(df_cluster %>% select(PRF, HC),
+            by = join_by(PRF))
+```
+
+```{r}
+p1_c <- map_jp %>%
+  ggplot()+
+  geom_sf(aes(fill = HC), linewidth = 0.2) +
+  scale_fill_manual(values = c( "#8dd3c7",
+                                 "#ffffb3",
+                                "#fccde5",
+                               "#d9d9d9"),
+                    name = "Cluster")+
+  scale_x_continuous(limits = c(124, 148))+
+  scale_y_continuous(limits = c(25, 45)) +
+        guides(fill =guide_legend(nrow = 1, ncol = 3, byrow=TRUE,
+                             title.position = "top")) +
+  guides(fill = guide_legend(override.aes = list(alpha = 1, size = 2.8, colour = "black",
+                                                 linewidth = 0.1))) +
+  theme_void()+
+  labs(tag = "C")+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "inside",
+       # legend.title.position = "none",
+        legend.direction = "vertical",
+        legend.position.inside = c(0, 1),
+        legend.justification.inside = c(0, 1),
+        legend.justification = "left",
+        legend.key.size = unit(5, "mm"),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"),
+        legend.margin = margin(0, 0, 0, 0, unit = "mm"))
+
+p1_c
+```
+
+
+```{r}
+dist_fib_prf <- mat_fib_prf %>%
+  dist(method = "euclidean")
+
+# dist_fib_prf
+```
+
+```{r}
+row_labels <- mat_fib_prf %>%
+  as.data.frame() %>%
+  colnames() %>%
+  str_replace("_", " + ")
+
+row_labels 
+```
+
+```{r}
+p1_d <- ComplexHeatmap::Heatmap(t(mat_fib_prf),
+                                
+                                column_split = 4,
+                                border_gp = grid::gpar(col = "black"),
+                              
+                            #  clustering_method_rows = "ward.D2",
+                            
+                            row_names_gp = grid::gpar(fontsize = 8),
+                              row_labels = row_labels,
+                        row_dend_width = unit(5, "mm"),
+                              
+                          #clustering_method_columns = "ward.D2",
+                        
+                        cluster_columns  = hclust,
+                        column_names_gp = grid::gpar(fontsize = 8),
+                          column_names_rot = 90,
+                              column_dend_height = unit(5, "mm"),
+                              
+                              row_title_gp = gpar(fontsize = 0),
+                           
+                        
+                          bottom_annotation = columnAnnotation(
+                                Cluster = anno_block(gp = gpar(fill = c("#8dd3c7",
+                                                                        "#ffffb3",
+                                                                        "#d9d9d9",
+                                                                        "#fccde5" )),
+                                                     labels = c("A", "B", "D", "C"), 
+                                                     labels_rot = 0,
+                                                     height = unit(4, "mm"),
+                                                     labels_gp = gpar(col = "black", 
+                                                                      fontsize = 8))),
+                           
+                        
+  
+                              col = circlize::colorRamp2(c(-2,0, 2), 
+                                                         c("#1f77b4", "white", "#d62728")),
+                              column_title_gp = gpar(fontsize = 0),
+                              
+                              heatmap_legend_param = list(
+                                title = "Z score",
+                                title_gp = gpar(fontsize = 8, fontface = "bold"),
+                                labels_gp = gpar(fontsize = 8),
+                                border = "black",
+                                legend_height = unit(3, "cm"))
+                              )
+
+p1_d
+```
+
+```{r}
+p1_d <- p1_d %>% as.ggplot()
+
+p1_d <- p1_d +
+  labs(tag = "D") +
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"))
+
+p1_d
+```
+
+
+```{r}
+# check 
+
+df_fib_prf_2023_clu <- df_fib_prf_2023 %>%
+  left_join(df_cluster %>%
+              select(iso_3166_2, HC),
+            by = join_by(iso_3166_2))
+
+```
+
+
+```{r}
+df_fib_prf_2023_clu %>%
+  ggplot(aes(HC, ADJ, fill = HC)) +
+  geom_boxplot(width = 0.7)+
+  scale_fill_manual(values =  c(  "#8dd3c7",
+                                  "#fccde5" ,                             
+                                "#ffffb3",
+                                "#d9d9d9"))+
+  facet_wrap2(vars(FIB),
+              nrow = 2, ncol = 5, scales= "free_y",
+              remove_labels = "all",
+              axes = "all")+
+  scale_y_continuous(limits = c(0, NA))+
+  theme_classic()+
+  theme(strip.background = element_blank(),
+        legend.position = "none")
+  
+```
+
+# create order
+
+```{r}
+fib_marker <- df_fib_marker %>%
+  mutate(FIB_f = str_replace(FIB, "TE", "TE_CAP")) %>%
+  mutate(FIB_f = str_replace(FIB_f, "_", " + ")) %>%
+  filter(FIB != "CAP") %>%
+  distinct(FIB, .keep_all = TRUE) %>%
+  arrange(FIB) %>%
+  pull(FIB_f) 
+
+fib_marker
+```
+
+```{r}
+df_fib_prf_2023_clu <- df_fib_prf_2023_clu %>%
+  mutate(FIB = str_replace(FIB, "_", " + ")) %>%
+  mutate(FIB = factor(FIB, levels = fib_marker))
+```
+
+
+```{r}
+format_p <- function(x){
+  if (x > 0.001){
+    p <- formatC(x, digits = 2, format = "fg", flag = "#" )
+    
+    return(p)
+  }
+  
+  else {
+    
+    p <- formatC(x, digits = 1, format = "e", flag = "#")
+    
+    sig <- p %>% str_extract(".+(?=e)")
+      
+    ex <- p %>% str_extract("(?<=e).+") %>% str_remove_all("(?<=\\-)0+")
+    
+    p <- str_c(sig, "×10^", ex)
+    
+    return(p)
+  }
+}
+
+format_pv <- Vectorize(format_p)
+```
+
+
+```{r}
+symbol_p <- function(x){
+  if (x < 0.001){
+    return("***")
+  }
+  
+  else if (x < 0.01){
+    return("**")
+  }
+  
+  else if (x < 0.05) {
+    return("*")
+  }
+  
+  else {
+   return(NA)
+  }}
+
+symbol_pv <- Vectorize(symbol_p)
+
+```
+
+
+
+
+```{r}
+# Shapiro-Wilk Normality Test
+
+df_fib_prf_2023_clu %>%
+  arrange(FIB) %>%
+  group_by(FIB) %>%
+  shapiro_test(ADJ)
+```
+
+
+```{r}
+# Shapiro test normality
+
+df_fib_prf_2023_clu %>%
+  arrange(FIB) %>%
+  group_by(FIB) %>%
+  shapiro_test(ADJ) %>%
+  mutate(statistic = formatC(statistic, digit = 2, format = "f")) %>%
+  mutate(p_label = format_pv(p)) %>%
+  mutate(p_sign = symbol_pv(p)) %>%
+  select(FIB, statistic, p_label, p_sign) %>%
+  rename(p_value = "p_label") %>%
+  write.xlsx("../table/TableS8.xlsx")
+```
+
+```{r}
+df_fib_prf_2023_clu %>%
+  ggplot(aes(ADJ))+
+  geom_histogram(bins=20)+
+  facet_wrap2(vars(FIB), ncol = 5, scales = "free")+
+  theme_classic()
+```
+
+
+
+```{r}
+# histogram
+
+df_fib_prf_2023_clu %>%
+  ggplot(aes(ADJ_log))+
+  geom_histogram(bins=20)+
+  facet_wrap2(vars(FIB), ncol = 5, scales = "free")+
+  theme_classic()
+```
+
+```{r}
+df_fib_prf_2023_clu %>%
+  arrange(FIB) %>%
+  group_by(FIB) %>%
+  summarise(MIN = min(ADJ),
+            MAX = max(ADJ))
+```
+
+
+```{r}
+df_qq_scales <- df_fib_prf_2023_clu %>%
+  arrange(FIB) %>%
+  group_by(FIB) %>%
+  summarise(max = max(ADJ))  %>%
+  mutate(ymax = case_when(max > 7 ~ 7.5,
+                          max > 6 ~ 7,
+                          max > 5 ~ 5,
+                          max > 3 ~ 4,
+                          max > 2 ~ 2.5,
+                          max > 1.5 ~ 2,
+                          max > 1 ~ 1.5,
+                          max > 0.2 ~ 0.3,
+                          max > 0.1 ~ 0.2) )
+
+
+df_qq_scales %>% arrange(max)
+```
+
+```{r}
+df_qq_scales <- df_qq_scales %>%
+  mutate(n = case_when(ymax %in% c(0.3, 1.5, 7.5) ~ 3,
+                       ymax %in% c(0.2, 2.0, 4.0) ~ 4,
+                       ymax %in% c(2.5, 5.0) ~ 5,
+                       ymax %in% c(7) ~ 7))
+df_qq_scales 
+```
+
+```{r}
+df_qq_scales <- df_qq_scales %>% 
+  mutate(ybrk = ymax/n)
+```
+
+```{r}
+df_qq_scales_split <- split(df_qq_scales, df_qq_scales$FIB)
+```
+
+```{r}
+qq_scales <- lapply(df_qq_scales_split , function(x) {
+  scale_y_continuous(limits = c(NA, x$ymax),
+                     breaks = seq(0, x$ymax, x$ybrk))
+})
+```
+
+
+```{r}
+# qqplot
+
+#s1 <- 
+  df_fib_prf_2023_clu %>%
+  ggplot(aes(sample = ADJ))+
+  geom_qq(fill = NA, colour = "black",
+          shape = 21,
+          stroke = 1,
+          size= 1,
+          alpha = 0.5) +
+  geom_qq_line(colour = "#d62728",
+               alpha = 0.8,
+               linewidth = 0.5)+
+  facet_wrap2(vars(FIB), ncol = 5, scales = "free_y",
+              axes = "all")+
+  ggh4x::facetted_pos_scales(y = qq_scales)+
+  labs(x = "**Theoretical quantile**",
+       y = "**Sample value<br>(claims per 10<sup>3</sup> people)**")+
+  theme_classic()+
+  theme(strip.background = element_blank(),
+        strip.text = element_text(size = 8, colour = "black", face= "bold"),
+        axis.title.x = element_markdown(size = 8, colour = "black"),
+        axis.title.y = element_markdown(size = 8, colour = "black"),
+        axis.text = element_text(size = 8, colour = "black"),
+        axis.line = element_line(colour = "black", linewidth = 0.3),
+        axis.ticks = element_line(colour = "black", linewidth = 0.3),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm")
+        )
+
+#s1
+```
+
+```{r}
+#  kruskal_test
+
+df_fib_prf_2023_clu %>%
+  arrange(FIB) %>%
+  group_by(FIB) %>%
+  kruskal_test(ADJ ~ HC) %>%
+  mutate(p_sign = symbol_pv(p))
+```
+
+```{r}
+# Kruskal wallis
+
+df_fib_prf_2023_clu %>%
+  arrange(FIB) %>%
+  group_by(FIB) %>%
+  kruskal_test(ADJ ~ HC) %>%
+  mutate(p_label = format_pv(p)) %>%
+  mutate(statistic = formatC(statistic, digit = 2, format = "f")) %>%
+  mutate(p_sign = symbol_pv(p)) %>%
+  select(FIB, statistic, p_label, p_sign) %>%
+  rename(p_value = "p_label") %>%
+  write.xlsx("../table/TableS9.xlsx")
+```
+
+
+```{r}
+df_fib_prf_2023_clu %>%
+  group_by(FIB) %>%
+  dunn_test(ADJ ~ HC, p.adjust.method = "BH") %>%
+  mutate(p_label = format_pv(p.adj)) %>%
+  mutate(p_sign = symbol_pv(p.adj)) %>%
+  mutate(statistic = formatC(statistic, digits = 2, format = "fg", flag = "#")) %>%
+  select(FIB, group1, group2, statistic, p_label, p_sign) %>% View()
+```
+
+
+```{r}
+# Post-hoc Dunn
+
+df_fib_prf_2023_clu %>%
+  group_by(FIB) %>%
+  dunn_test(ADJ ~ HC, p.adjust.method = "BH") %>%
+  mutate(p_label = format_pv(p.adj)) %>%
+  mutate(p_sign = symbol_pv(p.adj)) %>%
+  mutate(statistic = formatC(statistic, digits = 2, format = "fg", flag = "#")) %>%
+  mutate(statistic = if_else(str_detect(statistic, "\\.$"),
+                             paste0(statistic, "0"), statistic)) %>%
+  select(FIB, group1, group2, statistic, p_label, p_sign) %>%
+  rename(p_value = "p_label") %>%
+  write.xlsx("../table/TableS10.xlsx")
+```
+
+
+
+```{r}
+df_fib_prf_2023_clu %>%
+  mutate(FIB = str_replace(FIB, "_", " + ")) %>%
+  mutate(FIB = factor(FIB, levels = fib_marker)) %>%
+  ggplot(aes(HC, ADJ, fill = HC)) +
+  geom_boxplot(width = 0.7)+
+  scale_fill_manual(values =  c("#8dd3c7",
+                                "#ffffb3",
+                                "#fccde5",
+                                "#d9d9d9"))+
+  facet_wrap2(vars(FIB),
+              nrow = 2, ncol = 5, scales= "free_y",
+              remove_labels = "all",
+              axes = "all")+
+  scale_y_continuous(limits = c(0, NA))+
+  theme_classic()+
+  theme(strip.background = element_blank(),
+        legend.position = "none")
+```
+
+```{r}
+# define y scales
+
+df_y_scale <- tibble(FIB = fib_marker,
+                     YMAX = c(0.3, 3, 1.5, 4, 9, 2, 8, 6, 0.2),
+                     YBRK = c(0.1, 1, 0.5, 1, 3, 0.5, 2, 2, 0.05)) 
+```
+
+
+```{r}
+list_p1_e <- purrr::map(fib_marker, function(fib){
+  p <- df_fib_prf_2023_clu %>%
+    mutate(FIB = str_replace(FIB, "_", " + ")) %>%
+    filter(FIB == fib) %>%
+    ggplot(aes(HC, ADJ, fill = HC))+
+    geom_boxplot(width = 0.7, 
+                 alpha = 1,
+                 colour = "black",
+                 linewidth = 0.3,
+                 median.linewidth = 0.5,
+                 outlier.colour = "black",
+                 outlier.shape = 1,
+                 outlier.size = 1,
+                 outlier.stroke = 0.3,
+                 outlier.alpha = 1) +
+  scale_fill_manual(values =  c("#8dd3c7",
+                                "#ffffb3",
+                                "#fccde5",
+                                "#d9d9d9"))+
+  scale_y_continuous(limits =c(0,
+                               df_y_scale %>% filter(FIB == fib) %>% pull(YMAX)),
+                     breaks = seq(0,
+                                df_y_scale %>% filter(FIB == fib) %>% pull(YMAX),
+                                df_y_scale %>% filter(FIB == fib) %>% pull(YBRK)))+
+  labs(title = fib,
+       x = "Cluster",
+       y = paste0("**Claims (n) per 10<sup>3</sup> people**"))+
+    coord_cartesian(clip = "off")+
+  theme_classic()+
+  theme(plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        
+        axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_markdown(size = 8, colour = "black"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "none",
+        plot.margin = margin(0, 1, 0, 1, unit = "mm"))
+    
+  return(p)
+})
+```
+
+```{r}
+for (i in 1:length(list_p1_e )){
+  print(list_p1_e[[i]])
+}
+```
+
+```{r}
+# assign 
+
+for (i in 1:length(list_p1_e)){
+  assign(paste0("p1_e", i),
+         list_p1_e[[i]])
+  
+}
+```
+
+```{r}
+p1_e1 <- p1_e1 +
+  labs(tag = "E")+
+  
+  # A-D *
+  geom_segment(aes(x = 1.1, xend = 3.9, y = 0.3, yend = 0.3),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 2.5, y = 0.3, label = "\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+  
+  # A-C *
+  geom_segment(aes(x = 1.1, xend = 2.9, y = 0.3-0.3/9, yend = 0.3-0.3/9),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 2, y = 0.3-0.3/9, label = "\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+  
+  # A-B *
+  geom_segment(aes(x = 1.1, xend = 1.9, y = 0.3-0.3/9*2, yend = 0.3-0.3/9*2),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 1.5, y = 0.3-0.3/9*2, label = "\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+  
+  
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank())
+
+p1_e1
+```
+
+```{r}
+p1_e2 <- p1_e2 +
+  
+  # A-D **
+  
+  geom_segment(aes(x = 1.1, xend = 3.9, y = 3, yend = 3),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 2.5, y = 3, label = "\\*\\*\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+  
+  # A-C **
+  
+  geom_segment(aes(x = 1.1, xend = 2.9, y = 3-3/9, yend = 3-3/9),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 2, y = 3-3/9, label = "\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+  
+  # A-B *
+  
+  geom_segment(aes(x = 1.1, xend = 1.9, y = 3-3/9*2, yend = 3-3/9*2),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 1.5, y = 3-3/9*2, label = "\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+  
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank())
+
+p1_e2
+```
+
+```{r}
+p1_e3 <- p1_e3 +
+  
+  # B-D *
+  
+  geom_segment(aes(x = 2.1, xend = 3.9, y = 1.5, yend = 1.5),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 3, y = 1.5, label = "\\*\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+
+  # B-C *
+  
+  geom_segment(aes(x = 2.1, xend = 2.9, y = 1.5-1.5/9 * 1, yend = 1.5-1.5/9 *1),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 2.5, y = 1.5-1.5/9 *1, label = "\\*\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+  
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank())
+
+p1_e3
+```
+
+```{r}
+
+p1_e4 <- p1_e4 +
+  
+  # A-D *
+  
+  geom_segment(aes(x = 1.1, xend = 3.9, y = 4, yend = 4),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 2.5, y = 4, label = "\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+  
+  # A-C **
+  
+  geom_segment(aes(x = 1.1, xend = 2.9, y = 4- 4/9, yend = 4- 4/9),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 2, y = 4- 4/9, label = "\\*\\*\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+
+    # B-C ***
+  
+  geom_segment(aes(x = 2.1, xend = 2.9, y = 4- 4/9*2, yend = 4-4/9*2),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 2.5, y = 4- 4/9*2, label = "\\*\\*\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+  
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank())
+
+p1_e4
+```
+
+```{r}
+p1_e5 <- p1_e5 +
+  
+
+  # A-C *
+  
+  geom_segment(aes(x = 1.1, xend = 2.9, y = 9, yend = 9),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 2, y = 9, label = "\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+  
+    #B-D **
+  
+  geom_segment(aes(x = 2.1, xend = 3.9, y = 9-9/9 *1, yend = 9-9/9 * 1),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 3, y = 9-9/9 * 1, label = "\\*\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+  
+  # C-D ***
+  
+  geom_segment(aes(x = 3.1, xend = 3.9, y = 9-9/9*2, yend = 9-9/9*2),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 3.5, y = 9-9/9*2, label = "\\*\\*\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+  
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+p1_e5
+```
+
+```{r}
+p1_e6 <- p1_e6 +
+  theme(axis.title.x = element_blank())
+
+p1_e6
+```
+
+```{r}
+p1_e7 <- p1_e7 +
+  
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+p1_e7
+```
+
+
+```{r}
+p1_e8 <- p1_e8 +
+  
+   # A-C **
+  
+   geom_segment(aes(x = 1.1, xend = 2.9, y = 6, yend = 6),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 2, y = 6, label = "\\*\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+  
+     # B-C *
+  
+   geom_segment(aes(x = 2.1, xend = 2.9, y = 6-6/9, yend = 6-6/9),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 2.5, y = 6-6/9, label = "\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+  
+       # C-D **
+  
+   geom_segment(aes(x = 3.1, xend = 3.9, y = 6-6/9, yend = 6-6/9),
+               linewidth = 0.3, colour = "black")+
+  geom_richtext(data = tibble(x = 3.5, y = 6-6/9, label = "\\*\\*"),
+                aes(x = x, y = y, label = label),
+                size = 2.8, colour = "black",
+                vjust = 0.5,
+                label.padding = unit(c(0, 0, 0, 0), "mm"),
+                label.margin = unit(c(0, 0, 0, 0), "mm"),
+                fill = NA, label.color = NA,
+                inherit.aes = FALSE)+
+  
+    theme(axis.title.y = element_blank())
+
+
+
+p1_e8
+```
+
+```{r}
+p1_e9 <- p1_e9 +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+p1_e9
+```
+
+
+```{r}
+p_name <- paste0("p1_", letters[3:4])
+
+p_name <- c(p_name, paste0("p1_e", 1:9))
+
+p_name
+```
+
+```{r}
+p_list <- c(p1_c, p1_d,
+            p1_e1, p1_e2, p1_e3, p1_e4, p1_e5, 
+            p1_e6, p1_e7, p1_e8, p1_e9)
+```
+
+```{r}
+for (i in 1:length(p_name)){
+  saveRDS(p_list[[i]], paste0("../plot/", p_name[i], ".RDS"))
+}
+```
+
+# end of run

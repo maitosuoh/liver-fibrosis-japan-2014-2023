@@ -1,0 +1,1492 @@
+---
+title: "Liver fibrosis"
+output: html_document
+date: "2026-02-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+
+library(readxl)
+library(openxlsx)
+library(openxlsx2)
+
+library(fpp3)
+library(rkt)
+
+library(ggtext)
+library(patchwork)
+library(ggh4x)
+```
+
+
+```{r}
+# make df folder
+
+#dir.create("../df/long", showWarnings = TRUE, recursive = FALSE, #mode = "0777")
+```
+
+
+# covid
+
+
+
+```{r}
+df_test_dem_reg <-  readRDS("../rds/test/dem/df_test_dem_reg")
+
+df_test_prf_reg <-  readRDS("../rds/test/prf/df_test_prf_reg")
+```
+
+
+```{r}
+df_img_dem_add <-  readRDS("../rds/img/dem/df_img_dem_add")
+
+df_img_prf_add <-  readRDS("../rds/img/prf/df_img_prf_add")
+```
+
+
+```{r}
+df_pop_dem <- readRDS("../rds/pop/dem/df_pop_dem")
+
+df_pop_prf <- readRDS("../rds/pop/prf/df_pop_prf")
+```
+
+
+```{r}
+df_test_dem_reg %>%
+  filter(str_detect(PRO_name, "組織インヒビター") &
+           str_detect(CLASS_name, "血液"))　%>%
+  count(PRO_name, PRO_code)
+```
+
+```{r}
+df_test_dem_reg %>%
+  filter(str_detect(PRO_name, "組織インヒビター") &
+           str_detect(CLASS_name, "血液"))　%>%
+  count(PRO_name, PRO_code)
+```
+```{r}
+df_test_dem_reg %>%
+  filter(str_detect(PRO_name, "プロリルヒドロキシラーゼ") )　%>%
+  count(PRO_name, PRO_code)
+```
+
+
+```{r}
+df_test_dem_reg <- df_test_dem_reg %>%
+  rename(YEAR = "YEAR_str") %>%
+  mutate(TOTAL = as.numeric(TOTAL))
+```
+
+
+```{r}
+df_img_dem_add <- df_img_dem_add %>%
+  rename(YEAR = "YEAR_str") %>%
+  mutate(TOTAL = as.numeric(TOTAL))
+```
+
+```{r}
+# 160029310	 P-3-P 	
+# 160125050 ４型コラーゲン・７Ｓ 
+# 160145310	４型コラーゲン
+# 160151150 ヒアルロン酸
+# 160204950 M2BPGi
+# 160215150 オートタキシン 
+
+df_fib_marker <- tibble(PRO_code = c("160029310",
+                                     "160125050",
+                                     "160145310",
+                                     "160151150",
+                                     "160204950",
+                                     "160215150"),
+                        FIB = c("P-3-P",
+                                "COL4-7S",
+                                "COL4",
+                                "HA",
+                                "M2BPGi",
+                                "Autotaxin")) 
+```
+
+
+```{r}
+levels_fib <- df_fib_marker %>%
+  distinct(PRO_code, .keep_all = TRUE) %>%
+  arrange(PRO_code) %>%
+  pull(FIB)
+
+levels_fib
+```
+
+```{r}
+df_fib_marker <- df_fib_marker %>%
+  mutate(FIB = factor(FIB, levels = levels_fib))
+```
+
+
+```{r}
+df_fib_dem <- df_test_dem_reg %>%
+  filter(PRO_code %in% df_fib_marker$PRO_code) %>%
+  left_join(df_fib_marker,
+            by = join_by(PRO_code))
+```
+
+```{r}
+df_fib_dem %>%
+  group_by(YEAR, FIB) %>%
+  count() %>%
+  filter(n != 2)
+```
+```{r}
+df_fib_dem %>%
+  group_by(FIB) %>%
+  summarise(MIN = min(TOTAL))
+
+# all values not zero
+```
+
+
+```{r}
+df_fib_dem %>%
+  group_by(YEAR, FIB) %>%
+  summarise(SUM = sum(TOTAL)) 
+```
+
+
+```{r}
+df_fib_dem %>%
+  group_by(YEAR, FIB) %>%
+  summarise(SUM = sum(TOTAL)) %>%
+  ggplot(aes(YEAR, SUM, group = FIB, colour = FIB)) +
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+  scale_colour_manual(values= c("#CC79A7",
+                                  "#E69F00",
+                                  "#009E73",
+                                  "gray60",
+                                  "#D55E00",
+                                  "#0072B2"))+
+    theme_classic()
+```
+
+
+```{r}
+df_fib_marker$FIB
+```
+
+
+
+```{r}
+c("All", as.character(df_fib_marker$FIB))
+```
+
+```{r}
+# prepare all
+
+df_fib_dem_all <- df_fib_dem %>%
+  group_by(YEAR, FIB) %>%
+  summarise(SUM = sum(TOTAL)) %>%
+  bind_rows(df_fib_dem %>%
+              group_by(YEAR) %>%
+              summarise(SUM = sum(TOTAL)) %>%
+                          mutate(FIB = "All")) %>%
+  mutate(FIB = factor(FIB, levels = c("All", 
+                                      as.character(df_fib_marker$FIB)))) %>%
+  mutate(YEAR = as.numeric(YEAR))
+
+df_fib_dem_all
+```
+
+```{r}
+df_fib_dem_all %>% filter(FIB == "All")
+```
+
+
+```{r}
+# include all
+
+
+p1_a1 <- df_fib_dem_all %>%
+  ggplot(aes(YEAR, SUM, group = FIB, colour = FIB)) +
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+  scale_colour_manual(values= c("black",
+                                "#e377c2",
+                                  "#bcbd22",
+                                "#8c564b",
+                                  "#7f7f7f",
+                                  "#ff7f0e",
+                                  "#17becf"),
+                      name = "Blood marker")+
+    scale_x_continuous(limits = c(2014, 2023),
+                     breaks = seq(2014, 2023, 2))+
+  scale_y_continuous(limits = c(0, 8*10^5),
+                     breaks = seq(0, 8*10^5, 2*10^5),
+                     labels = scales::label_comma())+
+  guides(colour = guide_legend(nrow = 1))+
+  labs(tag  = "A",
+       x = "Year",
+       y = "Claims (n)")+
+    theme_classic()+
+   theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+         axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "bottom",
+        legend.location = "plot",
+        legend.justification= c(0, 0.5),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"),
+        legend.margin = margin(0, 0, 0, 0, unit = "mm"),
+        legend.box.margin = margin(0, 0, 0, 0, unit = "mm"),
+        legend.box.spacing = unit(0, "mm"))
+
+p1_a1
+```
+
+
+
+```{r}
+df_fib_dem_m2bpgi <- df_fib_dem %>%
+  group_by(YEAR, FIB) %>%
+  summarise(SUM = sum(TOTAL)) %>%
+  group_by(YEAR) %>%
+  mutate(ALL = sum(SUM)) %>%
+  mutate(PCT = SUM/ALL * 100) %>%
+  filter(FIB == "M2BPGi")
+
+df_fib_dem_m2bpgi
+```
+
+```{r}
+levels_fib
+```
+
+```{r}
+df_fib_marker$FIB
+```
+
+
+```{r}
+df_fib_dem %>%
+  group_by(YEAR, FIB) %>%
+  summarise(SUM = sum(TOTAL)) %>%
+  group_by(YEAR) %>%
+  mutate(ALL = sum(SUM)) %>%
+  mutate(PCT = SUM/ALL * 100) %>%
+  mutate(FIB = factor(FIB, levels = c("P-3-P",
+                                "COL4-7S",
+                                "COL4",
+                                "HA",
+                                "Autotaxin",
+                                "M2BPGi") )) %>%
+  ungroup() %>%
+  count(FIB)
+```
+
+
+```{r}
+p1_a2 <- df_fib_dem %>%
+  group_by(YEAR, FIB) %>%
+  summarise(SUM = sum(TOTAL)) %>%
+  group_by(YEAR) %>%
+  mutate(ALL = sum(SUM)) %>%
+  mutate(PCT = SUM/ALL * 100) %>%
+  mutate(FIB = factor(FIB, levels = c("P-3-P",
+                                "COL4-7S",
+                                "COL4",
+                                "Autotaxin",
+                                "HA",
+                                "M2BPGi") )) %>%
+  mutate(label = case_when(FIB == "M2BPGi" & round(PCT) > 0 ~ round(PCT),
+                           .default = NA)) %>%
+  ggplot(aes(YEAR, PCT, fill = FIB)) +
+  geom_col(width = 0.7, position = "stack")+
+  scale_fill_manual(values= c("#e377c2",
+                                  "#bcbd22",
+                                  "#8c564b",
+                               "#17becf",
+                                  "#7f7f7f",
+                                  "#ff7f0e") )+
+  geom_text(
+            aes(x = YEAR, label = label),
+            y = df_fib_dem_m2bpgi %>% 
+              filter(YEAR == "2015") %>%
+              mutate(PCT = PCT/2) %>% pull(PCT),
+            size = 2.8, colour = "black")+
+  scale_x_discrete(labels = c("2014", "", 
+                              "2016", "",
+                              "2018", "",
+                              "2020", "",
+                              "2022", ""))+
+  scale_y_continuous(breaks = seq(0, 100, 25),
+                     expand = c(0, 0))+
+    labs(#tag  = "A",
+       x = "Year",
+       y = "Proportion (%)")+
+    theme_classic()+
+    theme(
+         axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "none",
+       # legend.justification= c(0, 0.5),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"))
+
+
+
+p1_a2
+```
+
+```{r}
+# bar chart only mac2bpgi
+
+s1_a1 <- df_fib_dem_m2bpgi %>%
+  ggplot(aes(YEAR, SUM))+
+  geom_col(width = 0.5, fill = "#ff7f0e")+
+  geom_text(aes(x = YEAR, y = SUM + 5*10^5/50,
+                label = scales::comma(SUM)),
+            vjust = 0,
+            size = 2.8, colour = "black")+
+  theme_classic()+
+  scale_y_continuous(limits = c(0, 5*10^5),
+                     breaks = seq(0, 5*10^5, 1*10^5),
+                     expand = c(0, 0),
+                     labels = scales::label_comma())+
+    labs(tag  = "A",
+         title = "M2BPGi",
+       x = "Year",
+       y = "Claims (n)")+
+    theme_classic()+
+    theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+          plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+         axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "none",
+       # legend.justification= c(0, 0.5),
+        plot.margin = margin(0, 0, 2.5, 0, unit = "mm"))
+
+s1_a1
+
+```
+
+```{r}
+df_fib_dem_all <- df_fib_dem_all %>%
+  left_join(df_pop_dem %>% 
+              mutate(YEAR = as.numeric(YEAR)) %>%
+              filter(AGE == "total") %>%
+              select(YEAR, ALL_total) %>%
+              rename(POP = "ALL_total"),
+            by = join_by(YEAR)) %>%
+  mutate(ADJ = SUM / POP) 
+```
+
+```{r}
+df_fib_dem_all
+```
+
+
+```{r}
+s1_a2 <- df_fib_dem_all %>%
+  filter(FIB == "M2BPGi") %>%
+  mutate(label = round(ADJ, digits = 2)) %>%
+  mutate(label = format(label, nsmall = 2)) %>%
+  mutate(label = str_remove_all(label, "\\s")) %>%
+  mutate(YEAR = as.character(YEAR)) %>%
+  ggplot(aes(YEAR, ADJ))+
+  geom_col(width = 0.5, fill = "#ff7f0e")+
+  geom_text(aes(x = YEAR, y = ADJ + 4/50, label = label),
+                        vjust = 0,
+            size = 2.8, colour = "black")+
+  theme_classic()+
+  scale_y_continuous(limits = c(0, 4),
+                     breaks = seq(0, 4, 1),
+                     expand = c(0, 0),
+                     labels = scales::label_comma(suffix = ".0"))+
+#  coord_cartesian(clip = "off")+
+    labs(#tag  = "B",
+      #   title = "M2BPGi",
+       x = "Year",
+       y = "**Claims (n) per 10<sup>3</sup> people**")+
+    theme_classic()+
+    theme(#plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+          plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+         axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_markdown(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "none",
+       # legend.justification= c(0, 0.5),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"))
+
+s1_a2
+
+```
+
+
+
+```{r}
+# adjust for population
+
+
+s2_a <- df_fib_dem_all %>%
+  mutate(YEAR = as.character(YEAR) ) %>%
+ ggplot(aes(YEAR, ADJ, group = FIB, colour = FIB)) +
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+  scale_colour_manual(values= c("black",
+                                "#e377c2",
+                                  "#bcbd22",
+                                "#8c564b",
+                                  "#7f7f7f",
+                                  "#ff7f0e",
+                                  "#17becf"),
+                      name = "Blood marker")+
+  scale_y_continuous(limits = c(0, 7),
+                    breaks = seq(0, 7, 1),
+                     labels = scales::label_comma())+
+  guides(colour = guide_legend(ncol = 1))+
+  labs(tag  = "A",
+       x = "Year",
+       y = "Claims (n) per 10<sup>3</sup> people")+
+    theme_classic()+
+   theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+         axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_markdown(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "right",
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"),
+        legend.margin = margin(0, 0, 0, 0, unit = "mm")
+        )
+
+s2_a
+```
+
+```{r}
+df_test_dem_reg %>%
+  filter(str_detect(PRO_name, "肝硬度|エラストグラフィ"))
+```
+
+
+```{r}
+df_test_dem_reg %>%
+  filter(str_detect(CLASS_code, "D215-2")) %>% count(PRO_name)
+```
+
+```{r}
+df_test_dem_reg %>%
+  filter(str_detect(CLASS_code, "D215-3")) %>% count(PRO_name)
+```
+
+```{r}
+df_test_dem_reg %>%
+  filter(str_detect(CLASS_code, "D215-4")) %>% count(PRO_name)
+```
+
+```{r}
+df_elast_dem <- df_test_dem_reg %>%
+  filter(str_detect(PRO_name, "肝硬度|エラストグラフィ|超音波減衰法検査"))
+```
+
+
+```{r}
+df_elast_dem <- df_elast_dem  %>%
+  mutate(FIB = case_when(str_detect(PRO_name, "肝硬度") ~ "TE",
+                          str_detect(PRO_name, "超音波エラストグラフィ") ~ "USE",
+                          str_detect(PRO_name, "超音波減衰法") ~ "CAP")) 
+
+
+
+#%>%
+#  mutate(ELAST = factor(ELAST, levels = c("Transient", "Ultrasound","CAP")))
+```
+
+```{r}
+df_img_dem_add %>%
+  count(YEAR)
+```
+
+
+```{r}
+df_img_dem_add %>%
+  filter(PRO_code == "170040170") 
+```
+
+
+```{r}
+df_mr_dem <- df_img_dem_add %>%
+  filter(str_detect(PRO_name, "肝硬度|エラストグラフィ")) %>%
+  mutate(FIB = "MRE")
+
+
+```
+
+```{r}
+levels_elast <- c("TE","USE", "CAP", "MRE")
+```
+
+
+```{r}
+df_elast_dem <- df_elast_dem %>%
+  bind_rows(df_mr_dem %>%
+              mutate(TOTAL = as.numeric(TOTAL))) %>%
+  mutate(FIB = factor(FIB, levels = levels_elast))
+```
+
+
+```{r}
+df_elast_dem %>% count(PRO_code, PRO_name)
+```
+```{r}
+df_elast_dem %>%
+  group_by(FIB) %>%
+  summarise(MIN = min(TOTAL))
+```
+
+
+
+```{r}
+df_elast_dem_all <- df_elast_dem %>% group_by(YEAR, FIB) %>%
+  summarise(SUM = sum(TOTAL)) %>%
+  bind_rows(df_elast_dem %>% group_by(YEAR) %>%
+              summarise(SUM = sum(TOTAL)) %>%
+              mutate(FIB = "All")) %>%
+    mutate(FIB = factor(FIB, levels = c("All",
+                                         "TE",
+                                          "USE",
+                                          "CAP",
+                                          "MRE")))
+
+df_elast_dem_all
+```
+
+
+```{r}
+p1_b <- df_elast_dem_all %>%
+  mutate(SUM = case_when(FIB == "All" & YEAR %in% c("2014", "2015") ~ NA,
+                         .default = SUM)) %>%
+  mutate(YEAR = as.numeric(YEAR)) %>%
+  ggplot(aes(YEAR, SUM, colour = FIB, group = FIB)) +
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+  scale_colour_manual(values = c("black",
+                                 "#d62728",
+                                 "#1f77b4",
+                                 "#2ca02c",
+                                 "#9467bd"),
+                      labels = c("All",
+                                            "TE",
+                                          "USE",
+                                          "CAP",
+                                          "MRE"),
+                      name = "Elastography")+
+  scale_x_continuous(breaks = seq(2014, 2022, 2)) +
+   scale_y_continuous(limits = c(0, 5*10^5),
+                   breaks = seq(0, 5*10^5, 1*10^5),
+                     labels = scales::label_comma())+
+  guides(colour = guide_legend(nrow = 1))+
+  labs(tag  = "B",
+       x = "Year",
+       y = "Claims (n)")+
+    theme_classic()+
+   theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+         axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_markdown(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "bottom",
+        legend.justification= c(0, 0.5),
+        legend.location = "plot",
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"),
+        legend.margin = margin(0, 0, 0, 0, unit = "mm"),
+        legend.box.margin = margin(0, 0, 0, 0, unit = "mm"),
+        legend.box.spacing = unit(0, "mm"))
+
+p1_b
+```
+
+
+```{r}
+df_elast_dem_all <- df_elast_dem_all %>%
+  left_join(df_pop_dem %>% 
+              filter(AGE == "total") %>%
+              select(YEAR, ALL_total) %>%
+              rename(POP = "ALL_total"),
+            by = join_by(YEAR)) %>%
+  mutate(ADJ = SUM / POP) 
+```
+
+```{r}
+df_elast_dem_all <- df_elast_dem_all %>%
+  mutate(YEAR = as.numeric(YEAR))
+```
+
+
+
+```{r}
+s1_b1 <- df_elast_dem_all %>%
+  filter(FIB == "TE") %>%
+   ggplot(aes(YEAR, SUM))+
+  geom_col(width = 0.5, fill = "#d62728")+
+  geom_text(aes(x = YEAR, y = SUM + 3*10^5/50,
+                label = scales::comma(SUM)),
+            vjust = 0,
+            size = 2.8, colour = "black")+
+  theme_classic()+
+  scale_x_continuous(#limits = c(2014, 2023),
+                     breaks = seq(2014, 2023, 1))+
+  scale_y_continuous(limits = c(0, 2.5*10^5),
+                     breaks = seq(0, 2.5*10^5, 0.5*10^5),
+                     expand = c(0, 0),
+                     labels = scales::label_comma())+
+    labs(tag  = "B",
+         title = "TE",
+       x = "Year",
+       y = "Claims (n)")+
+    theme_classic()+
+    theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+          plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+         axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "none",
+       # legend.justification= c(0, 0.5),
+        plot.margin = margin(0, 0, 2.5, 0, unit = "mm"))
+
+s1_b1
+```
+
+```{r}
+s1_b2 <- df_elast_dem_all %>%
+  filter(FIB == "TE") %>%
+    mutate(label = round(ADJ, digits = 2)) %>%
+  mutate(label = format(label, nsmall = 2)) %>%
+  mutate(label = str_remove_all(label, "\\s")) %>%
+   ggplot(aes(YEAR, ADJ))+
+  geom_col(width = 0.5, fill = "#d62728")+
+  geom_text(aes(x = YEAR, y = ADJ + 2/50,
+                label = label),
+            vjust = 0,
+            size = 2.8, colour = "black")+
+  theme_classic()+
+  scale_x_continuous(#limits = c(2014, 2023),
+                     breaks = 2014:2023)+
+  scale_y_continuous(limits = c(0, 2),
+                     breaks = seq(0, 2, 0.5),
+                     expand = c(0, 0))+
+    labs(#tag  = "B",
+         #title = "Transient elastography",
+       x = "Year",
+       y = "**Claims (n) per 10<sup>3</sup> people**")+
+    theme_classic()+
+    theme(#plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+          plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+         axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_markdown(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "none",
+       # legend.justification= c(0, 0.5),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"))
+
+s1_b2
+```
+
+
+
+
+```{r}
+s2_b <- df_elast_dem_all %>% 
+  mutate(ADJ = case_when(FIB == "All" & YEAR %in% c("2014", "2015") ~ NA,
+                         .default = ADJ)) %>%
+  ggplot(aes(YEAR, ADJ, colour = FIB, group = FIB)) +
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+  scale_colour_manual(values = c("black",
+                                 "#d62728",
+                                 "#1f77b4",
+                                 "#2ca02c",
+                                 "#9467bd"),
+                      labels = c("All",
+                                            "TE",
+                                          "USE",
+                                          "CAP",
+                                          "MRE"),
+                      name = "Elastography")+
+  scale_x_continuous(limits = c(2014, 2023),
+                     breaks = seq(2014, 2023, 1))+
+   scale_y_continuous(limits = c(0, 4),
+                   breaks = seq(0, 4, 1),
+                     labels = scales::label_comma())+
+  guides(colour = guide_legend(ncol = 1))+
+  labs(tag  = "B",
+       x = "Year",
+       y = "Claims (n) per 10<sup>3</sup> people")+
+    theme_classic()+
+   theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+         axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_markdown(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "right",
+        #legend.justification= c(0, 0.5),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"),
+        legend.margin = margin(0, 0, 0, 0, unit = "mm")
+        )
+
+s2_b 
+```
+
+
+
+```{r}
+s1 <- s1_a1 + s1_a2 + s1_b1 + s1_b2 + 
+  plot_layout(heights = c(1, 1, 1, 1))
+  
+  
+s1
+
+ggsave("../figure/FigS1.svg", s1,
+       width = 175, height = 200, units = "mm")
+```
+
+```{r}
+#s2 <- s2_a + s2_b +
+#  plot_layout(heights = c(1, 1))
+  
+  
+#s2
+
+#ggsave("../figure/FigS2.svg", s2,
+#       width = 175, height = 125, units = "mm")
+```
+
+
+```{r}
+# assemble supplementary
+
+s2 <- s2_a + s2_b + 
+  plot_layout(design = "
+  A
+  B")&
+  theme(legend.justification = "left")
+
+s2
+
+ggsave("../figure/FigS3.svg", s2,
+       width = 175, height = 150, units = "mm")
+```
+
+
+# perform time series analysis
+
+```{r}
+df_comb_dem_all <- df_fib_dem_all %>%
+  mutate(FIB = str_replace(FIB, "All", "All_fib")) %>%
+  mutate(TYPE = "bm") %>%
+  bind_rows(df_elast_dem_all %>%
+              mutate(FIB = str_replace(FIB, "All", "All_elast")) %>%
+              mutate(TYPE = "elast")) %>%
+  mutate(FIB = factor(FIB, levels = c("All_fib",
+                                      levels_fib,
+                                      "All_elast",
+                                      levels_elast))) %>%
+  arrange(FIB)
+
+df_comb_dem_all 
+```
+
+```{r}
+df_comb_dem_all <- df_comb_dem_all  %>%
+  filter( !(FIB == "All_elast" & YEAR %in% c("2014", "2015"))) %>%
+  filter(!FIB %in% c("CAP", "MRE") ) %>%
+  ungroup()
+
+df_comb_dem_all 
+```
+
+
+```{r}
+# Mann Kendall test
+
+df_comb_rkt_sum <- df_comb_dem_all %>%
+  nest(data = -FIB) %>%
+  mutate(
+    model = purrr::map(data, ~ rkt(date = .x$YEAR,
+                                 y = .x$SUM)),
+    tau = map_dbl(model, "tau"),
+    p_value = map_dbl(model, "sl"),
+    slope = map_dbl(model, "B")
+  )
+
+df_comb_rkt_sum
+
+```
+
+```{r}
+df_comb_rkt_adj <- df_comb_dem_all %>%
+  nest(data = -FIB) %>%
+  mutate(
+    model = purrr::map(data, ~ rkt(date = .x$YEAR,
+                                 y = .x$ADJ)),
+    tau = map_dbl(model, "tau"),
+    p_value = map_dbl(model, "sl"),
+    slope = map_dbl(model, "B")
+  )
+
+df_comb_rkt_adj
+```
+
+
+```{r}
+get_exp <- function(x){
+  
+  if (x > 0.001){
+    return("")
+  }
+  else{
+
+    p <- formatC(x, digits = 1, format = "e", flag = "#")
+    
+    ex <- p %>% str_extract("(?<=e).+") %>% str_remove_all("(?<=\\-)0+")
+    
+    return(ex)
+}}
+
+get_expv <- Vectorize(get_exp)
+```
+
+```{r}
+get_num <- function(x){
+
+   if (x > 0.001){
+    
+    p <- formatC(x, digits = 2, format = "fg", flag = "#" )
+    return(p)
+    
+   }
+  else {
+  
+    p <- formatC(x, digits = 1, format = "e", flag = "#")
+    
+    num <- p %>% str_extract(".+(?=e)")
+    
+    num <- str_c(num, "×10")
+      
+    return(num)
+}}
+
+get_numv <- Vectorize(get_num)
+```
+
+```{r}
+symbol_p <- function(x){
+  if (is.na(x)){
+    return(NA)
+  }
+  
+  else if (x < 0.001){
+    return("***")
+  }
+  
+  else if (x < 0.01){
+    return("**")
+  }
+  
+  else if (x < 0.05) {
+    return("*")
+  }
+  
+  else {
+   return(NA)
+  }}
+
+symbol_pv <- Vectorize(symbol_p)
+
+```
+
+```{r}
+t1_a <- df_comb_rkt_sum %>%
+  select(FIB, tau, p_value, slope) %>%
+  mutate(p = p_value) %>%
+  mutate(tau = formatC(tau, digit = 2, format = "fg", flag= "#")) %>%
+  
+  mutate(p_num = get_numv(p_value)) %>%
+  mutate(p_exp = get_expv(p_value)) %>%
+  
+  mutate(slope = round(slope)) %>%
+  mutate(slope = scales::comma(slope)) %>%
+  
+  mutate(across(c(tau, p_exp, slope), ~ str_replace_all(.x, "-", "−"))) %>%
+  
+  mutate(p_label = purrr::map2(p_num, p_exp, function(x, y){
+    c(fmt_txt(x), fmt_txt(y, vert_align = "superscript"))
+  }) ) %>%
+  
+  mutate(p_symbol = symbol_pv(p)) %>%
+  select(FIB, slope, tau, p_num, p_exp, p_label, p_symbol)
+  
+t1_a
+```
+
+```{r}
+t1_b <- df_comb_rkt_adj %>%
+  select(FIB, tau, p_value, slope) %>%
+  mutate(p = p_value) %>%
+  mutate(tau = formatC(tau, digit = 2, format = "fg", flag= "#")) %>%
+  
+  mutate(p_num = get_numv(p_value)) %>%
+  mutate(p_exp = get_expv(p_value)) %>%
+  
+  mutate(slope = case_when(abs(slope) <10 ~ formatC(slope, digit = 2, format = "fg", flag = "#"),
+                           .default = round(slope) %>% as.character())) %>%
+  
+  mutate(across(c(tau, p_exp, slope), ~ str_replace_all(.x, "-", "−"))) %>%
+  
+  mutate(p_label = purrr::map2(p_num, p_exp, function(x, y){
+    c(fmt_txt(x), fmt_txt(y, vert_align = "superscript"))
+  }) ) %>%
+  
+  mutate(p_symbol = symbol_pv(p)) %>%
+  select(FIB, slope, tau, p_num, p_exp, p_label, p_symbol)
+  
+t1_b
+```
+
+```{r}
+t1_ab <- t1_a %>%
+  left_join(t1_b,
+            by= join_by(FIB),
+            suffix = c("_sum", "_adj"))
+
+t1_ab
+```
+
+
+```{r}
+t1 <- t1_ab %>%
+  mutate(across(starts_with("p_symbol"), ~ replace_na(.x, "" ))) %>%
+  select(! c(starts_with("p_num"), starts_with("p_exp")))
+  
+  
+  #mutate(across(any_of(cols_fill_na), ~ replace_na(.x, "-"))) %>% 
+#  mutate(across(any_of(cols_fill_na), ~ str_replace(.x, " NA" , "-")))
+```
+
+```{r}
+t1
+```
+
+
+```{r}
+t1 <- t1 %>%
+  mutate(FIB = str_replace(FIB, "All_fib", "All blood markers")) %>%
+  mutate(FIB = str_replace(FIB, "All_elast", "All elastography")) 
+```
+
+
+```{r}
+wb_workbook() %>%
+  wb_add_worksheet("Sheet1") %>%
+  wb_add_data(x = t1) %>%
+  wb_save("../table/TableS5.xlsx")
+```
+
+
+# 
+
+```{r}
+t1_ab
+```
+
+
+
+```{r}
+t1_label <- t1_ab %>%
+  left_join(df_comb_dem_all %>% ungroup %>%  distinct(FIB, TYPE),
+            by = join_by(FIB)) %>%
+  
+  mutate(p_label_sum = case_when(p_exp_sum == "" ~ paste0("'", p_num_sum, "'"),
+                                 .default = paste0("'", p_num_sum)))  %>%
+  
+    mutate(p_label_adj = case_when(p_exp_adj == "" ~ paste0("'", p_num_adj, "'"),
+                                 .default = paste0("'", p_num_adj)))  %>%
+  
+  
+  mutate(p_label_sum = str_replace(p_label_sum, "×", "'%*%")) %>%
+
+  mutate(p_label_adj = str_replace(p_label_adj, "×", "'%*%")) %>%
+  
+  
+  
+  mutate(p_exp_sum = case_when( p_exp_sum != "" ~ paste0("^{'", p_exp_sum, "'}"),
+                                .default = p_exp_sum)) %>%
+
+  mutate(p_exp_adj = case_when( p_exp_sum != "" ~ paste0("^{'", p_exp_adj, "'}"),
+                                .default = p_exp_adj)) %>%
+  
+  mutate(label_sum = paste0("atop(tau == '", tau_sum, "',",  "italic(p)", " == ", p_label_sum, p_exp_sum, ")")) %>%
+  
+  
+  mutate(label_adj = paste0("atop(tau == '", tau_adj, "',",  "italic(p)", " == ", p_label_adj, p_exp_adj, ")")) %>%
+  
+  
+  filter(TYPE == "bm" & !str_detect(FIB, "All")) 
+
+t1_label
+```
+
+
+```{r}
+df_comb_dem_all %>%
+  arrange(FIB) %>%
+  group_by(FIB) %>%
+  summarise(max_sum = max(SUM),
+            max_adj = max(ADJ)) %>%
+  filter(FIB %in% t1_label$FIB) 
+```
+
+
+```{r}
+df_bm_scales <- df_comb_dem_all %>%
+  filter(FIB %in% t1_label$FIB) %>%
+  arrange(FIB) %>%
+  group_by(FIB) %>%
+  summarise(max_sum = max(SUM),
+            max_adj = max(ADJ))  %>%
+  mutate(ymax_sum = case_when(max_sum > 400000 ~ 500000,
+                          max_sum > 300000 ~ 400000,
+                          max_sum > 100000 ~ 150000,
+                          max_sum > 50000 ~ 100000,
+                          max_sum > 25000 ~ 30000,
+                          max_sum > 10000 ~ 15000 )) %>%
+  
+  mutate(ymax_adj = case_when(max_adj > 3 ~ 4,
+                          max_adj > 2 ~ 3,
+                          max_adj > 1 ~ 1.5,
+                          max_adj > 0.6 ~ 0.8,
+                          max_adj > 0.2 ~ 0.25,
+                          max_adj > 0.1 ~ 0.15 )) 
+
+
+df_bm_scales 
+```
+
+```{r}
+df_bm_scales <- df_bm_scales %>%
+  mutate(n_sum = case_when(ymax_sum %in% c(15000, 150000, 30000) ~ 3,
+                       ymax_sum %in% c(100000, 400000) ~ 4,
+                       ymax_sum %in% c(500000) ~ 5)) %>%
+  
+  mutate(n_adj = case_when(ymax_adj %in% c(0.15, 1.5, 3) ~ 3,
+                       ymax_adj %in% c(0.8, 4) ~ 4,
+                       ymax_adj %in% c(0.25) ~ 5))
+  
+
+df_bm_scales 
+```
+
+```{r}
+df_bm_scales  <- df_bm_scales %>% 
+  mutate(ybrk_sum = ymax_sum/n_sum) %>%
+  mutate(ybrk_adj = ymax_adj/n_adj)
+
+
+df_bm_scales 
+```
+
+```{r}
+levels_bm <- df_bm_scales$FIB %>% as.character()
+
+
+df_bm_scales <- df_bm_scales  %>%
+  mutate(FIB = factor(FIB, levels = levels_bm))
+```
+
+
+```{r}
+df_bm_scales_sum_split <-split(df_bm_scales, df_bm_scales$FIB)
+
+bm_scales_sum <- lapply(df_bm_scales_sum_split, function(x) {
+  scale_y_continuous(limits = c(0, x$ymax_sum),
+                     breaks = seq(0, x$ymax_sum, x$ybrk_sum),
+                     labels = scales::label_comma())
+})
+
+```
+
+```{r}
+t1_label <- t1_label %>%
+  mutate(FIB = factor(FIB, levels = levels_bm))
+```
+
+
+```{r}
+df_bm_scales_adj_split <-split(df_bm_scales, df_bm_scales$FIB)
+
+bm_scales_adj <- lapply(df_bm_scales_sum_split, function(x) {
+  scale_y_continuous(limits = c(0, x$ymax_adj),
+                     breaks = seq(0, x$ymax_adj, x$ybrk_adj),
+                     labels = scales::label_comma())
+})
+
+```
+
+```{r}
+s3_a <- df_comb_dem_all %>%
+  filter(TYPE == "bm" & !str_detect(FIB, "All")) %>%
+  mutate(FIB = factor(FIB, levels_bm)) %>%
+  ggplot(aes(YEAR, SUM, group = FIB, colour = FIB))+
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+  geom_text(data = t1_label,
+            aes(x = (2014+2023)/2, y = 0, label = label_sum),
+            size = 2.8, colour = "black",
+            hjust = 0, vjust= 0,
+            parse = TRUE)+
+  scale_colour_manual(values= c(
+                                "#e377c2",
+                                  "#bcbd22",
+                                "#8c564b",
+                                  "#7f7f7f",
+                                  "#ff7f0e",
+                                  "#17becf"),
+                      name = "Blood marker")+
+  facet_wrap2(vars(FIB), ncol = 3, scales = "free_y",
+              axes = "all")+
+  ggh4x::facetted_pos_scales(y = bm_scales_sum)+
+  guides(colour = guide_legend(nrow = 1))+
+  labs(tag = "A",
+       x = "Year",
+       y = "Claims (n)")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 8, colour = "black", face = "bold"),
+        axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_markdown(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "bottom",
+        #legend.justification= c(0, 0.5),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"),
+        legend.margin = margin(0, 0, 0, 0, unit = "mm"),
+        margin(0, 0, 0, 0, unit = "mm")
+        )
+
+s3_a
+```
+
+```{r}
+s3_b <-  df_comb_dem_all %>%
+  filter(TYPE == "bm" & !str_detect(FIB, "All")) %>%
+  mutate(FIB = factor(FIB, levels_bm)) %>%
+  ggplot(aes(YEAR, ADJ, group = FIB, colour = FIB))+
+  geom_line(linewidth = 0.3)+
+  geom_point(size = 1)+
+  geom_text(data = t1_label,
+            aes(x = (2014+2023)/2, y = 0, label = label_adj),
+            size = 2.8, colour = "black",
+            hjust = 0, vjust= 0,
+            parse = TRUE)+
+  scale_colour_manual(values= c(
+                                "#e377c2",
+                                  "#bcbd22",
+                                "#8c564b",
+                                  "#7f7f7f",
+                                  "#ff7f0e",
+                                  "#17becf"),
+                      name = "Blood marker")+
+  facet_wrap2(vars(FIB), ncol = 3, scales = "free_y",
+              axes = "all")+
+  ggh4x::facetted_pos_scales(y = bm_scales_adj)+
+  guides(colour = guide_legend(nrow = 1))+
+  labs(tag = "B",
+       x = "Year",
+       y = "Claims (n) per 10<sup>3</sup> people")+
+  theme_classic()+ 
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 8, colour = "black", face = "bold"),
+        axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_markdown(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "bottom",
+        #legend.justification= c(0, 0.5),
+        plot.margin = margin(0, 0, 0, 0, unit = "mm"),
+        legend.margin = margin(0, 0, 0, 0, unit = "mm"),
+        legend.box.margin = margin(0, 0, 0, 0, unit = "mm")
+        )
+
+s3_b 
+```
+
+```{r}
+#s3 <- s3_a + s3_b +
+#  plot_layout(design = "
+#              A
+#              B",
+#              guides= "collect")&
+#  theme(legend.position = "bottom",
+#        legend.box.spacing = unit(2, "mm"))
+
+# s3 
+
+# ggsave("../figure/FigS2.svg", s3, width = 175, height = 235, units = "mm" )
+```
+
+# use list
+
+```{r}
+df_bm_scales
+```
+
+```{r}
+df_bm_scales <- df_bm_scales %>% 
+  bind_cols(colour = c("#e377c2",
+                       "#bcbd22",
+                      "#8c564b",
+                        "#7f7f7f",
+                                  "#ff7f0e",
+                                  "#17becf"))
+
+df_bm_scales
+```
+
+
+```{r}
+list_s3_a <- purrr::map(levels_bm, function(fib){
+  
+  ymax <- df_bm_scales %>% filter(FIB == fib) %>% pull(ymax_sum)
+  
+  ybrk <- df_bm_scales %>% filter(FIB == fib) %>% pull(ybrk_sum)
+  
+  colour <- df_bm_scales %>% filter(FIB == fib) %>% pull(colour)
+  
+  label <- t1_label %>% filter(FIB == fib)
+  
+  
+  df_comb_dem_all %>%
+    filter(FIB == fib) %>%
+    ggplot(aes(YEAR, SUM, group = FIB))+
+    geom_line(linewidth = 0.3, colour = colour)+
+    geom_point(size = 1, colour = colour)+
+    geom_text(data = label,
+            aes(x = (2014+2023)/2, y = 0, label = label_sum),
+            size = 2.8, colour = "black",
+            hjust = 0, vjust= 0,
+            parse = TRUE)+
+    scale_x_continuous(limits = c(2014, 2023),
+                       breaks = seq(2014, 2022, 2))+
+    
+    scale_y_continuous(limits = c(0, ymax),
+                       breaks = seq(0, ymax, ybrk),
+                       labels = scales::label_comma())+
+  labs(title = fib,
+       x = "Year",
+       y = "Claims (n)")+
+  theme_classic()+
+  theme(#plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        #strip.background = element_blank(),
+        plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+    
+        axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_markdown(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "none",
+        #legend.justification= c(0, 0.5),
+        plot.margin = margin(1, 1, 2, 1, unit = "mm"),
+        legend.margin = margin(0, 0, 0, 0, unit = "mm")
+        )
+
+})
+```
+
+```{r}
+for (i in 1:length(list_s3_a)){
+  print(list_s3_a[[i]])
+}
+```
+
+
+```{r}
+for (i in 1:length(list_s3_a)){
+  assign(paste0("s3_a", i),  list_s3_a[[i]])
+}
+```
+
+```{r}
+s3_a1 <- s3_a1 +
+  labs(tag = "A")+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank())
+
+s3_a2 <- s3_a2 +  theme(axis.title.x = element_blank(),
+                        axis.text.x = element_blank())
+
+s3_a3 <- s3_a3 +  theme(axis.title.x = element_blank(),
+                        axis.text.x = element_blank())
+
+s3_a4 <- s3_a4 +  theme(axis.title.x = element_blank())
+
+#s3_a5 <- s3_a5 +  theme(axis.title.x = element_blank())
+
+s3_a6 <- s3_a6 +  theme(axis.title.x = element_blank())
+```
+
+
+```{r}
+list_s3_b <- purrr::map(levels_bm, function(fib){
+  
+  ymax <- df_bm_scales %>% filter(FIB == fib) %>% pull(ymax_adj)
+  
+  ybrk <- df_bm_scales %>% filter(FIB == fib) %>% pull(ybrk_adj)
+  
+  colour <- df_bm_scales %>% filter(FIB == fib) %>% pull(colour)
+  
+  label <- t1_label %>% filter(FIB == fib)
+  
+  
+  df_comb_dem_all %>%
+    filter(FIB == fib) %>%
+    ggplot(aes(YEAR, ADJ, group = FIB))+
+    geom_line(linewidth = 0.3, colour = colour)+
+    geom_point(size = 1, colour = colour)+
+    geom_text(data = label,
+            aes(x = (2014+2023)/2, y = 0, label = label_adj),
+            size = 2.8, colour = "black",
+            hjust = 0, vjust= 0,
+            parse = TRUE)+
+    scale_x_continuous(limits = c(2014, 2023),
+                       breaks = seq(2014, 2022, 2))+
+    
+    scale_y_continuous(limits = c(0, ymax),
+                       breaks = seq(0, ymax, ybrk),
+                       labels = scales::label_comma())+
+  labs(title = fib,
+       x = "Year",
+       y = "Claims (n) per 10<sup>3</sup> people")+
+  theme_classic()+
+  theme(#plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        #strip.background = element_blank(),
+        plot.title = element_text(size = 8, colour = "black", face = "bold", hjust = 0.5),
+    
+        axis.line = element_line(linewidth = 0.3),
+        axis.ticks = element_line(linewidth = 0.3),
+        axis.title.x = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_markdown(size = 8, colour = "black", face = "bold"),
+        axis.text = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 8, colour = "black", face = "bold"),
+        legend.text = element_text(size = 8, colour = "black"),
+        legend.position = "none",
+        #legend.justification= c(0, 0.5),
+        plot.margin = margin(1, 1, 2, 1, unit = "mm"),
+        legend.margin = margin(0, 0, 0, 0, unit = "mm"),
+  )
+})
+```
+
+```{r}
+for (i in 1:length(list_s3_b)){
+  print(list_s3_b[[i]])
+}
+```
+
+```{r}
+for (i in 1:length(list_s3_b)){
+  assign(paste0("s3_b", i),  list_s3_b[[i]])
+}
+```
+
+
+
+
+```{r}
+s3_b1 <- s3_b1 +
+  labs(tag = "B")+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank())
+
+s3_b2 <- s3_b2 +  theme(axis.title.x = element_blank(),
+                        axis.text.x = element_blank())
+
+s3_b3 <- s3_b3 +  theme(axis.title.x = element_blank(),
+                        axis.text.x = element_blank())
+
+s3_b4 <- s3_b4 +  theme(axis.title.x = element_blank())
+
+#s3_b5 <- s3_b5 +  theme(axis.title.x = element_blank())
+
+s3_b6 <- s3_b6 +  theme(axis.title.x = element_blank())
+```
+
+```{r}
+s3 <- s3_a1 + s3_a2 + s3_a3 + s3_a4 + s3_a5 + s3_a6 + 
+  s3_b1 + s3_b2 + s3_b3 + s3_b4 + s3_b5 + s3_b6 + 
+  plot_layout(nrow = 4, ncol = 3, axes = "collect_y")
+
+s3
+```
+
+```{r}
+ggsave( "../figure/FigS2.svg", s3, width = 175, height = 200, units = "mm")
+      # device = cairo_svg)
+```
+
+```{r}
+# save RDS for plotting
+
+saveRDS(p1_a1, "../plot/p1_a1.RDS")
+
+saveRDS(p1_a2, "../plot/p1_a2.RDS")
+
+saveRDS(p1_b, "../plot/p1_b.RDS")
+```

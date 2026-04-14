@@ -1,0 +1,339 @@
+---
+title: "Liver fibrosis"
+output: html_document
+date: "2026-02-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+
+library(readxl)
+library(openxlsx)
+
+library(fpp3)
+
+library(ggtext)
+library(patchwork)
+```
+
+
+```{r}
+# make df folder
+
+dir.create("../table_fib/", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+```{r}
+df_test_dem_reg <- readRDS("../rds/test/dem/df_test_dem_reg")
+
+df_test_dem_prf <-  readRDS("../rds/test/prf/df_test_prf_reg")
+```
+
+```{r}
+df_img_dem_add <- readRDS("../rds/img/dem/df_img_dem_add")
+
+df_img_prf_add <- readRDS("../rds/img/prf/df_img_prf_add")
+```
+
+
+```{r}
+df_pop_dem <- readRDS("../rds/pop/dem/df_pop_dem")
+
+df_pop_prf <- readRDS("../rds/pop/prf/df_pop_prf")
+```
+
+
+```{r}
+df_test_dem_reg %>%
+  filter(str_detect(PRO_name, "組織インヒビター") &
+           str_detect(CLASS_name, "血液"))　%>%
+  count(PRO_name, PRO_code)
+```
+
+
+```{r}
+df_test_dem_reg <- df_test_dem_reg %>%
+  rename(YEAR = "YEAR_str") %>%
+  mutate(TOTAL = as.numeric(TOTAL))
+```
+
+
+```{r}
+df_test_dem_reg %>%
+  filter(CLASS_code == "D215-2") %>%
+  select(CLASS_code, CLASS_name, PRO_name, YEAR) %>% View()
+```
+
+```{r}
+df_test_dem_reg %>%
+  filter(CLASS_code == "D215-2") %>% View()
+```
+
+
+```{r}
+df_test_dem_reg %>%
+  filter(CLASS_code == "D215-2") %>%
+  group_by(YEAR, SHEET) %>%
+  summarise(SUM = sum(TOTAL))
+```
+
+
+```{r}
+df_test_dem_reg %>%
+  filter(CLASS_code == "D215-2") %>%
+  group_by(YEAR) %>%
+  summarise(SUM = sum(TOTAL))
+```
+
+```{r}
+df_test_dem_reg %>%
+  filter(CLASS_code == "D215-2") %>%
+  group_by(YEAR) %>%
+  summarise(SUM = sum(TOTAL)) %>%
+  mutate(YEAR = as.numeric(YEAR)) %>%
+  filter(YEAR >= 2016  & YEAR <= 2020) %>%
+  summarise(SUM = sum(SUM))
+  
+```
+
+
+```{r}
+# 160029310	 P-3-P 	
+# 160125050 ４型コラーゲン・７Ｓ 
+# 160145310	４型コラーゲン
+# 160151150 ヒアルロン酸
+# 160204950 M2BPGi
+# 160215150 オートタキシン 
+
+df_fib_marker <- tibble(PRO_code = c("160029310",
+                                     "160125050",
+                                     "160145310",
+                                     "160151150",
+                                     "160204950",
+                                     "160215150"),
+                        FIB = c("P-3-P",
+                                "COL4-7S",
+                                "COL4",
+                                "HA",
+                                "M2BPGi",
+                                "Autotaxin")) 
+```
+
+
+```{r}
+levels_fib <- df_fib_marker %>%
+  distinct(PRO_code, .keep_all = TRUE) %>%
+  arrange(PRO_code) %>%
+  pull(FIB)
+
+levels_fib
+```
+
+
+```{r}
+df_fib_marker <- df_fib_marker %>%
+  mutate(FIB = factor(FIB, levels = levels_fib))
+```
+
+
+```{r}
+df_fib_dem <- df_test_dem_reg %>%
+  filter(PRO_code %in% df_fib_marker$PRO_code) %>%
+  left_join(df_fib_marker,
+            by = join_by(PRO_code))
+```
+
+```{r}
+df_fib_dem %>%
+  distinct(CLASS_code, PRO_code, PRO_name)
+```
+```{r}
+df_fib_dem %>%
+  filter(PRO_code == "160204950") %>%
+  count(YEAR, CLASS_code, CLASS_name)
+```
+
+```{r}
+df_fib_marker_code <- df_fib_dem %>%
+  distinct(YEAR, CLASS_code, CLASS_name, PRO_code, FIB) %>%
+  arrange(PRO_code) %>%
+  mutate(CLASS_en = case_when(CLASS_code == "D007" ~ "Blood biochemistry",
+                              .default = "Liver stiffness measurement")) %>%
+  mutate(PRO_en = case_when(FIB == "P-3-P" ~ "Procollagen-3-peptide",
+                            FIB == "COL4-7S" ~ "Type 4 collagen 7S",
+                            FIB == "COL4" ~ "Type 4 collagen",
+                            FIB == "HA" ~ "Hyaluronic acid",
+                            FIB == "M2BPGi" ~ "Mac-2 binding protein glycosylation isomer",
+                            .default = "Autotaxin")) %>%
+  mutate(FIB = case_when(FIB == "Autotaxin" ~ "-",
+                         .default = FIB))
+
+df_fib_marker_code
+```
+
+```{r}
+t1 <- df_fib_marker_code %>%
+    filter(PRO_code == "160204950") %>%
+  distinct(YEAR, CLASS_code, CLASS_en, PRO_code, PRO_en, FIB)
+
+t1 
+```
+
+```{r}
+t1 %>% 
+  rename(Year = "YEAR",
+         Abbreviation = "FIB") %>%
+  write.xlsx("../table/TableS1.xlsx")
+```
+
+```{r}
+t2 <- df_fib_marker_code %>%
+  distinct(CLASS_code, CLASS_en, PRO_code, PRO_en, FIB) %>%
+  filter(PRO_code != "160204950")
+
+t2 
+```
+
+
+```{r}
+t2 %>%
+  write.xlsx("../table/TableS2.xlsx")
+```
+
+
+```{r}
+df_test_dem_reg %>%
+  filter(str_detect(PRO_name, "肝硬度|エラストグラフィ"))
+```
+
+
+```{r}
+df_test_dem_reg %>%
+  filter(str_detect(PRO_name, "肝硬度|エラストグラフィ")) %>%
+  distinct(CLASS_code, CLASS_name, PRO_code, PRO_name)
+  
+```
+
+```{r}
+df_test_dem_reg %>%
+  filter(str_detect(CLASS_code, "^D215-")) %>%
+  distinct(CLASS_code, CLASS_name, PRO_code, PRO_name)
+```
+
+
+```{r}
+df_elast_code <- df_test_dem_reg %>%
+  filter(PRO_code %in% c("160189750",
+                         "160207310",
+                         "160231410")) %>%
+  distinct(CLASS_code, CLASS_name, PRO_code, PRO_name) %>%
+  mutate(PRO_en = case_when(PRO_code == "160189750" ~ "Transient elastography",
+                            PRO_code == "160207310" ~ "Ultrasound elastography",
+                            PRO_code == "160231410" ~ "Controlled attenuation parameter")) %>%
+  mutate(FIB = case_when(PRO_code == "160189750" ~ "TE",
+                         PRO_code == "160207310" ~ "USE",
+                            PRO_code == "160231410" ~ "CAP"))
+```
+
+
+```{r}
+df_mr_code <- df_img_dem_add %>%
+  filter(str_detect(PRO_name, "肝硬度|エラストグラフィ")) %>%
+  distinct(PRO_code, PRO_name) %>%
+  mutate(FIB = "MRE",
+         PRO_en = "Magnetic resonance elastography")
+
+df_mr_code
+```
+
+
+```{r}
+df_elast_code <- df_elast_code %>%
+  bind_rows(df_mr_code) %>%
+  mutate(across(everything(), ~ replace_na(.x, "-")))
+
+df_elast_code
+```
+```{r}
+df_elast_code <- df_elast_code %>%
+  mutate(CLASS_en = case_when(CLASS_name == "-" ~ "-",
+                              .default = PRO_en ))
+```
+
+
+```{r}
+t3 <- df_elast_code %>%
+  select(CLASS_code, CLASS_en, PRO_code, PRO_en, FIB) %>%
+  rename(Abbreviation = "FIB") 
+```
+
+
+```{r}
+t3 %>%
+  write.xlsx("../table/TableS3.xlsx")
+```
+
+
+```{r}
+df_elast_dem <- df_elast_dem %>%
+  bind_rows(df_mr_dem %>%
+              mutate(TOTAL = as.numeric(TOTAL))) %>%
+  mutate(ELAST = factor(ELAST, levels = c("Transient",
+                                          "Ultrasound",
+                                          "CAP",
+                                          "MR")))
+```
+
+
+```{r}
+df_fib_elast_code
+```
+
+
+```{r}
+df_fib_elast_code %>%
+  distinct( CLASS_code, CLASS_en, PRO_code, PRO_en, FIB)
+```
+
+
+
+```{r}
+df_test_dem_reg %>%
+  filter(str_detect(CLASS_code, "D215-2")) %>% count(PRO_name)
+```
+
+```{r}
+df_test_dem_reg %>%
+  filter(str_detect(CLASS_code, "D215-3")) %>% count(PRO_name)
+```
+
+```{r}
+df_elast_dem <- df_test_dem_reg %>%
+  filter(str_detect(PRO_name, "肝硬度|エラストグラフィ"))
+```
+
+```{r}
+df_elast_dem <- df_elast_dem  %>%
+  mutate(ELAST = case_when(str_detect(PRO_name, "肝硬度") ~ "Transient",
+                          str_detect(PRO_name, "超音波") ~ "Shear wave")) %>%
+  mutate(ELAST = factor(ELAST, levels = c("Transient", "Shear wave")))
+```
+
+
+# calculate each fibrosis marker based on in/out and all
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
