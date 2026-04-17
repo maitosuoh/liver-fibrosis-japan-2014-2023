@@ -1,0 +1,708 @@
+---
+title: "Liver fibrosis"
+output: html_document
+date: "2026-02-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+
+library(rnaturalearth)
+
+library(viridis)
+
+library(fpp3)
+library(ggh4x)
+
+library(ggtext)
+library(scales)
+
+library(patchwork)
+library(sf)
+
+library(FactoMineR)
+library(ggrepel)
+library(factoextra)
+
+#library(corrplot)
+library(umap)
+
+library(rstatix)
+library(broom)
+
+library(gplots)
+library(cowplot)
+
+#library(RColorBrewer)
+
+
+library(pheatmap)
+#library(circlize)
+library(ComplexHeatmap)
+
+library(mapdata)
+library(ggplotify)
+
+library(umap)
+
+library(moments)
+
+library(GGally)
+```
+
+```{r}
+df_test_dem_reg <-  readRDS("../rds/test/dem/df_test_dem_reg")
+
+df_test_prf_reg <-  readRDS("../rds/test/prf/df_test_prf_reg")
+```
+
+```{r}
+df_img_dem_add <- readRDS("../rds/img/dem/df_img_dem_add")
+
+df_img_prf_add <- readRDS("../rds/img/prf/df_img_prf_add")
+```
+
+
+```{r}
+df_pop_prf <- readRDS("../rds/pop/prf/df_pop_prf")
+```
+
+```{r}
+df_test_prf_reg %>%
+  filter(str_detect(PRO_name, "組織インヒビター") &
+           str_detect(CLASS_name, "血液"))　%>%
+  count(PRO_name, PRO_code)
+```
+
+
+```{r}
+df_test_prf <- df_test_prf_reg %>%
+  bind_rows(df_img_prf_add) %>%
+  rename(YEAR = "YEAR_str") %>%
+  mutate(TOTAL = as.numeric(TOTAL))
+```
+
+
+```{r}
+# 160029310	 P-3-P 	
+# 160125050 ４型コラーゲン・７Ｓ 
+# 160145310	４型コラーゲン
+# 160151150 ヒアルロン酸
+# 160204950 M2BPGi
+# 160215150 オートタキシン 
+# 160189750 TE
+# 160207310 USE
+# 160231410 CAP
+# 170040170 MRE
+
+df_fib_marker <- tibble(PRO_code = c("160029310",
+                                     "160125050",
+                                     "160145310",
+                                     "160151150",
+                                     "160204950",
+                                     "160215150",
+                                     "160189750",
+                                     "160207310",
+                                     "160231410",
+                                     "170040170"),
+                        FIB = c("P-3-P",
+                                "COL4-7S",
+                                "COL4",
+                                "HA",
+                                "M2BPGi",
+                                "Autotaxin",
+                                "TE",
+                                "USE",
+                                "CAP",
+                                "MRE")) 
+```
+
+
+```{r}
+levels_fib <- df_fib_marker$FIB
+```
+
+
+```{r}
+df_fib_marker <- df_fib_marker %>%
+  mutate(FIB = factor(FIB, levels = levels_fib))
+```
+
+
+```{r}
+df_fib_prf <- df_test_prf %>%
+  filter(PRO_code %in% df_fib_marker$PRO_code) %>%
+  left_join(df_fib_marker,
+            by = join_by(PRO_code))
+```
+
+# convert to long
+
+```{r}
+df_fib_prf_long <- df_fib_prf  %>%
+  pivot_longer(col = c(ends_with("都"),
+                       ends_with("道"),
+                       ends_with("府"),
+                       ends_with("県")),
+               names_to = "PRF_jp",
+               values_to = "VALUE")
+```
+
+# format prf
+
+```{r}
+df_prf <- rnaturalearth::ne_states("japan") %>% 
+  as_tibble() %>%
+  select(iso_3166_2, name_ja, name_en) %>%
+  rename(PRF_jp = "name_ja",
+         PRF= "name_en") %>%
+  arrange(iso_3166_2)
+```
+
+```{r}
+df_prf <- df_prf %>%
+  mutate(PRF = str_remove(PRF, "Prefecture")) %>%
+  mutate(PRF = str_trim(PRF, side = "both")) %>%
+  mutate(PRF = str_replace_all(PRF, "Ō", "O")) %>%
+  mutate(PRF = str_replace_all(PRF, "ō", "o"))
+```
+
+
+```{r}
+#df_lax_prf <- df_fib_prf_long %>%
+#  mutate(across(c(TOTAL, VALUE), ~ replace_na(.x, 0))) %>%
+#  mutate(across(c(TOTAL, VALUE, COST_per), ~ as.numeric(.x))) %>%
+#  rename(PRF_jp = "PRF")
+```
+
+
+```{r}
+df_fib_prf_long <- df_fib_prf_long %>%
+  left_join(df_prf,
+            by = join_by(PRF_jp))
+```
+
+```{r}
+prf_levels <- df_fib_prf_long %>%
+  distinct(iso_3166_2, PRF) %>%
+  arrange(iso_3166_2) %>%
+  pull(PRF)
+
+prf_levels 
+```
+
+
+
+
+```{r}
+# define region
+
+hokkaido <- c("JP-01")
+
+tohoku <- c(paste0("JP-0", as.character(2:7)))
+
+kanto <- c(paste0("JP-0", as.character(8:9)), 
+           paste0("JP-", as.character(10:14)))
+
+chubu <- c(paste0("JP-", as.character(15:24)))
+
+kinki <- c(paste0("JP-", as.character(25:30)))
+
+chugoku <- c(paste0("JP-", as.character(31:35)))
+
+shikoku <- c(paste0("JP-", as.character(36:39)))
+
+kyusyu_okinawa <- c(paste0("JP-", as.character(40:47)))
+
+```
+
+
+```{r}
+reg_levels <- c("Hokkaido",
+                "Tohoku",
+                "Kanto",
+                "Chubu",
+                "Kansai",
+                "Chugoku",
+                "Shikoku",
+                "Kyusyu\nOkinawa")
+```
+
+```{r}
+df_fib_prf_long <- df_fib_prf_long %>%
+  mutate(REG = case_when(iso_3166_2 %in% hokkaido ~ "Hokkaido",
+                         iso_3166_2 %in% tohoku ~ "Tohoku",
+                         iso_3166_2 %in% kanto ~ "Kanto",
+                         iso_3166_2 %in% chubu ~ "Chubu",
+                         iso_3166_2 %in% kinki ~ "Kansai",
+                         iso_3166_2 %in% chugoku ~ "Chugoku",
+                         iso_3166_2 %in% shikoku ~ "Shikoku",
+                         iso_3166_2 %in% kyusyu_okinawa ~ "Kyusyu\nOkinawa")) %>%
+  mutate(REG = factor(REG, levels = reg_levels)) %>%
+  mutate(PRF = factor(PRF, levels = prf_levels))
+```
+
+
+
+## check missing
+
+
+```{r}
+df_fib_prf_long %>%
+  filter(VALUE == "-") %>%
+  filter(YEAR == "2020") %>%
+  count(FIB, YEAR)
+```
+
+# format
+
+```{r}
+df_fib_prf_long <- df_fib_prf_long %>%
+  mutate(VALUE = str_replace(VALUE, "-", "0")) %>%
+  mutate(VALUE = as.numeric(VALUE))
+```
+
+#
+
+```{r}
+# 2023
+
+df_fib_prf_all <- df_fib_prf_long %>%
+  group_by(FIB, YEAR, REG, PRF, iso_3166_2) %>%
+  summarise(SUM = sum(VALUE))
+  
+```
+
+```{r}
+df_fib_prf_all %>%
+  filter(SUM == 0) %>%
+  ungroup() %>%
+  count(FIB, YEAR) %>%
+  ungroup()
+``` 
+
+
+```{r}
+df_fib_prf_all %>%
+  mutate(YEAR = as.numeric(YEAR)) %>%
+  ggplot(aes(YEAR, SUM, group = FIB, colour = FIB)) +
+  geom_line(linewidth = 0.3) +
+    scale_colour_manual(values= c("#e377c2",
+                                  "#bcbd22",
+                                  "#8c564b",
+                                  "gray60",
+                                  "#ff7f0e",
+                                  "#1f77b4",
+                                "#d62728",
+                                "#17becf",
+                                "#9467bd",
+                                "black"))+
+    facet_wrap2(vars(PRF), scales = "free_y",
+                nrow = 8, ncol = 6)+
+  theme_classic()+
+  theme(strip.background = element_blank(),
+        strip.text = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title = element_text(size = 8, colour = "black"),
+        axis.text.x = element_text(size = 8, colour = "black",
+                                 angle = 90, hjust = 1, vjust = 0.5),
+        axis.title.y = element_text(size = 8, colour = "black"),
+        legend.position = "none")
+```
+
+
+```{r}
+colnames( df_fib_prf_all)
+```
+
+
+# add pop
+
+```{r}
+levels_fib_n <- df_fib_prf_all %>% ungroup() %>% filter(FIB != "CAP") %>% arrange(FIB) %>% distinct(FIB) %>%
+  pull(FIB) %>% str_replace("TE", "TE + CAP")
+
+levels_fib_n
+```
+
+
+
+# analysis
+
+
+```{r}
+df_fib_prf_2023 <- df_fib_prf_all %>%
+  ungroup() %>%
+  filter(YEAR == "2023") %>%
+  mutate(FIB = case_when(FIB %in% c("TE", "CAP") ~ "TE + CAP",
+                         .default = FIB)) %>%
+  filter(FIB != "CAP") %>%
+  group_by(FIB, YEAR, PRF, iso_3166_2) %>%
+  summarise(SUM = sum(SUM)) %>%
+  mutate(FIB = factor(FIB, levels  = levels_fib_n)) %>%
+  ungroup()
+
+df_fib_prf_2023
+```
+
+
+```{r}
+df_fib_prf_2023 <- df_fib_prf_2023%>%
+  mutate(ID = paste0(iso_3166_2, "_", YEAR)) %>%
+  left_join(df_pop_prf %>%
+              mutate(ID = paste0(iso_3166_2, "_", YEAR)) %>%
+              rename(POP = "ALL_total") %>%
+              select(ID, POP),
+            by = join_by(ID))
+```
+
+
+```{r}
+df_fib_prf_2023 <- df_fib_prf_2023 %>%
+  mutate(ADJ = SUM/POP) %>%
+  mutate(ADJ_log = log1p(ADJ)) %>%
+  ungroup()
+```
+
+
+```{r}
+df_fib_prf_2023 %>% group_by(FIB) %>%
+  summarise(ADJ_ori = skewness(ADJ),
+            ADJ_log = skewness(ADJ_log))
+```
+
+```{r}
+df_fib_prf_2023 %>% group_by(FIB) %>%
+  summarise(ADJ_ori_max = max(ADJ),
+            ADJ_log_max = max(ADJ_log),
+            ADJ_ori_min = min(ADJ),
+            ADJ_log_min = min(ADJ_log))
+```
+
+```{r}
+df_x_adj <- df_fib_prf_2023 %>% group_by(FIB) %>%
+  summarise(ADJ_ori = max(ADJ),
+            ADJ_log = max(ADJ_log)) %>%
+  
+  bind_cols(x_ori = c(0.3,
+                      3,
+                      1.5,
+                      4,
+                      8,
+                      2.5,
+                      7.5,
+                      6,
+                      0.25)) %>%
+  
+    bind_cols(x_log = c(0.3,
+                      1.5,
+                      1.0,
+                      1.6,
+                      2.5,
+                      1.2,
+                      2.5,
+                      2.5,
+                      0.20)) 
+
+df_x_adj
+```
+
+```{r}
+df_x_adj <- df_x_adj %>%
+  mutate(x_ori_n = case_when(x_ori %in% c(0.3, 1.5, 1.8, 3.0, 6.0, 7.5) ~ 3,
+                               x_ori %in% c(0.2, 4,  8) ~ 4,
+                               x_ori %in% c(0.25, 2.5) ~ 5,
+                            x_ori %in% c(7) ~ 7)) %>%
+  
+  mutate(x_log_n  = case_when(x_log %in% c(0.3, 1.5 ) ~ 3,
+                                x_log %in% c(0.20, 1.0, 1.2, 1.6 , 2.0) ~ 4,
+                                x_log %in% c(0.25,  2.5) ~ 5 ))
+
+df_x_adj
+```
+
+```{r}
+df_x_adj <- df_x_adj %>%
+  mutate(x_ori_brk = x_ori/x_ori_n,
+         x_log_brk = x_log/x_log_n)
+
+df_x_adj
+```
+```{r}
+df_x_ori <- df_x_adj %>% select(FIB, x_ori, x_ori_brk) 
+
+df_x_log <- df_x_adj %>% select(FIB, x_log, x_log_brk) 
+```
+
+
+```{r}
+df_x_ori_split <- split(df_x_ori , df_x_ori$FIB)
+```
+
+```{r}
+x_ori_hist_split <- lapply(df_x_ori_split, function(x) {
+  scale_x_continuous(limits = c(0, x$x_ori),
+                     breaks = seq(0, x$x_ori, x$x_ori_brk))
+})
+```
+
+```{r}
+df_x_log_split <- split(df_x_log , df_x_log$FIB)
+```
+
+```{r}
+x_log_hist_split <- lapply(df_x_log_split, function(x) {
+  scale_x_continuous(limits = c(0, x$x_log),
+                     breaks = seq(0, x$x_log, x$x_log_brk))
+})
+```
+
+
+```{r}
+# y scale for original histogram
+
+df_y_ori_his <- tibble(FIB = levels_fib_n,
+                   ymax = c(12, 8, 12, 10, 10, 15, 6, 6, 30),
+                   ybrk = c(3, 4, 3, 2, 2, 3, 2, 2, 10)) %>%
+  mutate(FIB = factor(FIB, levels = levels_fib_n))
+```
+
+
+```{r}
+df_y_ori_his_split <- split(df_y_ori_his , df_y_ori_his$FIB)
+```
+
+```{r}
+y_ori_his_split <- lapply(df_y_ori_his_split, function(x) {
+  scale_y_continuous(limits = c(0, x$ymax),
+                     breaks = seq(0, x$ymax, x$ybrk),
+                     expand = c(0, 0))
+})
+```
+
+```{r}
+s1_a1 <- df_fib_prf_2023 %>% 
+  ggplot(aes(ADJ)) +
+  geom_histogram(bins = 25,
+                 fill = "#17becf")+
+  facet_wrap2(vars(FIB), scales = "free", ncol = 5)+
+  ggh4x::facetted_pos_scales(x = x_ori_hist_split,
+                             y = y_ori_his_split
+                             )+
+  labs(tag = "A",
+       x = "**Claims (n) per 10<sup>3</sup> people [raw]**",
+       y = "Count (n)")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.x = element_markdown(size = 8, colour = "black", face = "bold"),
+       
+    
+        axis.title.y = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = margin(0, 0, 1, 0, "mm"))
+
+s1_a1 
+```
+
+```{r}
+# x scale for original density plot
+
+x_ori_den_split <- lapply(df_x_ori_split, function(x) {
+  scale_x_continuous(limits = c(0, x$x_ori),
+                     breaks = seq(0, x$x_ori, x$x_ori_brk),
+                     expand = c(0, 0))
+})
+```
+
+
+```{r}
+# y scale for original density plot
+
+df_y_ori_den <- tibble(FIB = levels_fib_n,
+                   ymax = c(12, 1, 2.5, 0.9, 0.4, 4, 0.4, 0.5, 75),
+                   n = c(3, 4, 5, 3, 4, 4, 4, 5, 3)) %>%
+  mutate(FIB = factor(FIB, levels = levels_fib_n))
+```
+
+```{r}
+df_y_ori_den <- df_y_ori_den %>%
+  mutate(ybrk = ymax/n)
+```
+
+
+```{r}
+df_y_ori_den_split <- split(df_y_ori_den , df_y_ori_den$FIB)
+```
+
+```{r}
+y_ori_den_split <- lapply(df_y_ori_den_split, function(x) {
+  scale_y_continuous(limits = c(0, x$ymax),
+                     breaks = seq(0, x$ymax, x$ybrk),
+                     expand = c(0, 0))
+})
+```
+
+
+```{r}
+s1_a2 <- df_fib_prf_2023 %>% 
+  ggplot(aes(ADJ)) +
+  geom_density(alpha = 0.5, fill = "#17becf", linewidth = 0.3) +
+  facet_wrap2(vars(FIB), scales = "free", ncol = 5)+
+  ggh4x::facetted_pos_scales(x = x_ori_den_split,
+                             y_ori_den_split )+
+   labs(
+        x = "**Claims (n) per 10<sup>3</sup> people [raw]**",
+       y = "Density")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),,
+        strip.background = element_blank(),
+        strip.text = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.x = element_markdown(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = margin(0, 0, 1, 0, "mm"))
+
+s1_a2
+```
+
+```{r}
+# y scale for log histogram
+
+df_y_log_his <- tibble(FIB = levels_fib_n,
+                   ymax = c(10, 6, 12, 10, 10, 15, 6, 6, 30),
+                   ybrk = c(2, 2, 3, 2, 2, 3, 2, 2, 10)) %>%
+  mutate(FIB = factor(FIB, levels = levels_fib_n))
+```
+
+
+```{r}
+df_y_log_his_split <- split(df_y_log_his , df_y_log_his$FIB)
+```
+
+```{r}
+y_log_his_split <- lapply(df_y_log_his_split, function(x) {
+  scale_y_continuous(limits = c(0, x$ymax),
+                     breaks = seq(0, x$ymax, x$ybrk),
+                     expand = c(0, 0))
+})
+```
+
+```{r}
+s1_b1 <- df_fib_prf_2023 %>% 
+  ggplot(aes(ADJ_log)) +
+  geom_histogram(bins = 25,
+                 fill = "#e377c2")+
+  facet_wrap2(vars(FIB), scales = "free", ncol = 5)+
+  ggh4x::facetted_pos_scales(x = x_log_hist_split,
+                             y = y_log_his_split )+
+  labs(tag = "B",
+       x = "**Claims (n) per 10<sup>3</sup> people [log transformation]**",
+       y = "Count (n)")+
+  theme_classic()+
+  theme(plot.tag = element_text(size = 12, colour = "black", face = "bold"),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.x = element_markdown(size = 8, colour = "black", face = "bold"),
+       
+       # axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = margin(0, 0, 1, 0, "mm"))
+
+s1_b1
+```
+
+```{r}
+# x scale for log density plot
+
+x_log_den_split <- lapply(df_x_log_split, function(x) {
+  scale_x_continuous(limits = c(0, x$x_log),
+                     breaks = seq(0, x$x_log, x$x_log_brk),
+                     expand = c(0, 0))
+})
+```
+
+```{r}
+# y scale for log density plot
+
+df_y_log_den <- tibble(FIB = levels_fib_n,
+                   ymax = c(12, 1.6, 3, 2.0, 1.5, 4, 1, 1.2, 75),
+                   n = c(3, 4, 3, 4, 3, 4, 4, 4, 3)) %>%
+  mutate(FIB = factor(FIB, levels = levels_fib_n))
+```
+
+```{r}
+df_y_log_den <- df_y_log_den %>%
+  mutate(ybrk = ymax/n)
+```
+
+
+```{r}
+df_y_log_den_split <- split(df_y_log_den , df_y_log_den$FIB)
+```
+
+```{r}
+y_log_den_split <- lapply(df_y_log_den_split, function(x) {
+  scale_y_continuous(limits = c(0, x$ymax),
+                     breaks = seq(0, x$ymax, x$ybrk),
+                     expand = c(0, 0))
+})
+```
+
+```{r}
+s1_b2 <- df_fib_prf_2023 %>% 
+  ggplot(aes(ADJ_log)) +
+  geom_density(alpha = 0.5, fill = "#e377c2", linewidth = 0.3) +
+  facet_wrap2(vars(FIB), scales = "free",
+              ncol = 5)+
+  ggh4x::facetted_pos_scales(x = x_log_den_split,
+                             y_log_den_split )+
+   labs(
+        x = "**Claims (n) per 10<sup>3</sup> people [log transformation]**",
+       y = "Density")+
+  theme_classic()+
+  theme(
+        strip.background = element_blank(),
+        strip.text = element_text(size = 8, colour = "black", face = "bold"),
+        axis.title.x = element_markdown(size = 8, colour = "black", face = "bold"),
+        axis.title.y = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        axis.line = element_line(linewidth = 0.3, colour = "black"),
+        axis.ticks = element_line(linewidth = 0.3, colour = "black"),
+        plot.margin = margin(0, 0, 1, 0, "mm"))
+
+s1_b2
+```
+
+```{r}
+s1 <- s1_a1 + s1_a2 + s1_b1 + s1_b2 +
+  plot_layout(design = "
+              A
+              B
+              C
+              D")
+
+s1 
+```
+
+```{r}
+ggsave("../figure/FigS4.svg", s1, width = 180, height = 235, units = "mm")
+```
+

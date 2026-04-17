@@ -1,0 +1,217 @@
+---
+title: "Liver fibrosis"
+output: html_document
+date: "2026-02-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+
+library(readxl)
+library(openxlsx)
+
+library(fpp3)
+
+library(ggtext)
+library(patchwork)
+```
+
+
+```{r}
+# make df folder
+
+dir.create("../table", showWarnings = TRUE, recursive = FALSE, mode = "0777")
+```
+
+
+# covid
+
+
+
+```{r}
+df_test_dem_reg <-  readRDS("../rds/test/dem/df_test_dem_reg")
+
+df_test_prf_reg <-  readRDS("../rds/test/prf/df_test_prf_reg")
+```
+
+
+```{r}
+df_pop_dem <- readRDS("../rds/pop/dem/df_pop_dem")
+
+df_pop_prf <- readRDS("../rds/pop/prf/df_pop_prf")
+```
+
+
+```{r}
+df_test_dem_reg %>%
+  filter(str_detect(PRO_name, "組織インヒビター") &
+           str_detect(CLASS_name, "血液"))　%>%
+  count(PRO_name, PRO_code)
+```
+```{r}
+df_test_dem_reg <- df_test_dem_reg %>%
+  rename(YEAR = "YEAR_str") %>%
+  mutate(TOTAL = as.numeric(TOTAL))
+```
+
+```{r}
+df_test_prf_reg <- df_test_prf_reg %>%
+  rename(YEAR = "YEAR_str") %>%
+  mutate(TOTAL = as.numeric(TOTAL))
+```
+
+
+```{r}
+# 160029310	 P-3-P 	
+# 160125050 ４型コラーゲン・７Ｓ 
+# 160145310	４型コラーゲン
+# 160151150 ヒアルロン酸
+# 160204950 M2BPGi
+# 160215150 オートタキシン 
+
+df_fib_marker <- tibble(PRO_code = c("160029310",
+                                     "160125050",
+                                     "160145310",
+                                     "160151150",
+                                     "160204950",
+                                     "160215150"),
+                        FIB = c("P-3-P",
+                                "COL4-7S",
+                                "COL4",
+                                "HA",
+                                "M2BPGi",
+                                "Autotaxin")) 
+```
+
+
+```{r}
+levels_fib <- df_fib_marker %>%
+  distinct(PRO_code, .keep_all = TRUE) %>%
+  arrange(PRO_code) %>%
+  pull(FIB)
+
+levels_fib
+```
+
+```{r}
+df_fib_marker <- df_fib_marker %>%
+  mutate(FIB = factor(FIB, levels = levels_fib))
+```
+
+
+```{r}
+df_fib_dem <- df_test_dem_reg %>%
+  filter(PRO_code %in% df_fib_marker$PRO_code) %>%
+  left_join(df_fib_marker,
+            by = join_by(PRO_code))
+```
+
+```{r}
+t1 <- df_fib_dem %>%
+  mutate(SHEET = factor(SHEET, levels = c("outpt", "inpt"))) %>%
+  filter(FIB == "M2BPGi") %>%
+  select(YEAR, SHEET, TOTAL) %>%
+  pivot_wider(names_from = SHEET,
+              values_from = TOTAL) %>%
+  mutate(total = outpt + inpt) %>%
+  mutate(across(c(outpt, inpt, total), 
+                ~ scales::comma(.x)))
+
+t1
+```
+
+```{r}
+ t1 <- 
+  t1 %>% 
+  rename(Year = "YEAR",
+         Outpatient = "outpt",
+         Inpatient= "inpt",
+         Total = "total")  #%>%
+#  write.xlsx("../table/TableS4.xlsx")
+```
+
+
+```{r}
+df_fib_prf <- df_test_prf_reg %>%
+  filter(PRO_code %in% df_fib_marker$PRO_code) %>%
+  left_join(df_fib_marker,
+            by = join_by(PRO_code))
+```
+
+```{r}
+t1_2 <- df_fib_prf  %>%
+  mutate(SHEET = factor(SHEET, levels = c("outpt", "inpt"))) %>%
+  filter(FIB == "M2BPGi") %>%
+  select(YEAR, SHEET, TOTAL) %>%
+  pivot_wider(names_from = SHEET,
+              values_from = TOTAL) %>%
+  mutate(total = outpt + inpt) %>%
+  mutate(across(c(outpt, inpt, total), 
+                ~ scales::comma(.x)))
+
+t1_2
+```
+
+
+
+```{r}
+df_elast_dem <- df_test_dem_reg %>%
+  filter(str_detect(PRO_name, "肝硬度|エラストグラフィ"))
+```
+
+```{r}
+df_elast_dem  %>%
+  count(CLASS_code, PRO_code)
+```
+
+
+```{r}
+df_elast_dem <- df_elast_dem  %>%
+  mutate(FIB = case_when(str_detect(PRO_name, "肝硬度") ~ "TE",
+                          str_detect(PRO_name, "超音波") ~ "USE")) %>%
+  mutate(FIB = factor(FIB, levels = c("TE", "USE")))
+```
+
+```{r}
+t2 <- df_elast_dem %>%
+  mutate(SHEET = factor(SHEET, levels = c("outpt", "inpt"))) %>%
+  filter(FIB == "TE") %>%
+  select(YEAR, SHEET, TOTAL) %>%
+  pivot_wider(names_from = SHEET,
+              values_from = TOTAL) %>%
+  mutate(total = outpt + inpt) %>%
+  mutate(across(c(outpt, inpt, total), 
+                ~ scales::comma(.x))) %>%
+  arrange(YEAR)
+
+t2
+```
+
+
+```{r}
+t2 <- t2 %>% 
+  rename(Year = "YEAR",
+         Outpatient = "outpt",
+         Inpatient= "inpt",
+         Total = "total") 
+```
+
+```{r}
+t1  %>%
+  left_join(t2, by = join_by(Year),
+            suffix = c("_m2bpgi", "_te"))
+```
+
+
+
+```{r}
+t1  %>%
+  left_join(t2, by = join_by(Year),
+            suffix = c("_m2bpgi", "_te")) %>%
+  write.xlsx("../table/TableS4.xlsx")
+```
+
